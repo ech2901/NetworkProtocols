@@ -2,23 +2,25 @@ from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM
 
 
 # This is a class because you might want to send multiple messages to the server
-class TCPEcho(socket):
+class TCPChargen(socket):
     def __init__(self, ip: str):
         socket.__init__(self, AF_INET, SOCK_STREAM)
-        socket.connect(self, (ip, 7))
+        socket.connect(self, (ip, 19))
 
-    def __call__(self, data: bytes):
+    def loop(self):
         """
-        Send data to server to be echo-ed back
+        Print to console stream of characters from server.
+        Close socket to stop
 
-        :param data: bytes
-        :return: bytes
+        :return:
         """
-        self.send(data)
-        return self.recv(1024)
+
+        while True:
+            data = self.recv(1024)
+            yield data
 
 
-def UDPEcho(ip: str, message: bytes):
+def UDPChargen(ip: str):
     """
     Send data to echo server
     Expect sent data to be returned from server
@@ -28,6 +30,6 @@ def UDPEcho(ip: str, message: bytes):
     :return: bytes
     """
     with socket(AF_INET, SOCK_DGRAM) as sock:
-        sock.sendto(message, (ip, 7))
+        sock.sendto(b'', (ip, 19))
         data = sock.recvfrom(1024)
     return data[0]
