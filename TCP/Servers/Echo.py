@@ -5,6 +5,7 @@ import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 
+
 class EchoHandler(BaseRequestHandler):
     def handle(self):
         logging.info(f'{self.client_address[0]} CONNECTED')

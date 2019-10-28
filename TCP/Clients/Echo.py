@@ -1,7 +1,6 @@
 from socket import socket, AF_INET, SOCK_STREAM
 
 
-
 class EchoClient(socket):
     def __init__(self, ip):
         socket.__init__(self, AF_INET, SOCK_STREAM)
