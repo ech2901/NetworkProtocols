@@ -1,12 +1,12 @@
 from socketserver import BaseRequestHandler
-from TCP.Servers import BaseThreadedServer
+from Servers import TCPServer, UDPServer
 
 import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 
 
-class EchoHandler(BaseRequestHandler):
+class TCPEchoHandler(BaseRequestHandler):
     def handle(self):
         logging.info(f'{self.client_address[0]} CONNECTED')
         while True:
@@ -21,10 +21,20 @@ class EchoHandler(BaseRequestHandler):
                 break
         logging.info(f'{self.client_address[0]} DISCONNECTED')
 
-class TCPEchoServer(BaseThreadedServer):
+
+class UDPEchoHandler(BaseRequestHandler):
+    def handle(self):
+        data, sock = self.request
+        # Echo sent data back to client
+        logging.info(f'{self.client_address[0]}: {data}')
+        sock.sendto(data, self.client_address)
+
+
+class UDPEchoServer(UDPServer):
     def __init__(self, ip):
-        BaseThreadedServer.__init__(self, ip, 7, EchoHandler)
+        UDPServer.__init__(self, ip, 7, UDPEchoHandler)
 
 
-
-
+class TCPEchoServer(TCPServer):
+    def __init__(self, ip):
+        TCPServer.__init__(self, ip, 7, TCPEchoHandler)
