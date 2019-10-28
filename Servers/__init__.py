@@ -11,7 +11,7 @@ class TCPServer(Thread, ThreadingTCPServer):
         Thread.__init__(self, target=self.serve_forever)
 
         # Set the thread name to the class name
-        Thread.setName(self, self.__class__.__name__)
+        Thread.setName(self, f'TCP-{self.__class__.__name__} Server')
         self.daemon = True
 
     def shutdown(self):
@@ -33,7 +33,7 @@ class UDPServer(Thread, ThreadingUDPServer):
         Thread.__init__(self, target=self.serve_forever)
 
         # Set the thread name to the class name
-        Thread.setName(self, self.__class__.__name__)
+        Thread.setName(self, f'UDP-{self.__class__.__name__} Server')
         self.daemon = True
 
     def shutdown(self):
