@@ -9,7 +9,7 @@ logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 class DiscardHandler(BaseRequestHandler):
     def handle(self):
         data, sock = self.request
-
+        # Discard sent data
         logging.info(f'{self.client_address[0]}: {data}')
 
 class UDPDiscardServer(BaseThreadedServer):

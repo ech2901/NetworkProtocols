@@ -1,14 +1,17 @@
 from socket import socket, AF_INET, SOCK_DGRAM
 
 
-class EchoClient(socket):
-    def __init__(self, ip):
-        socket.__init__(self, AF_INET, SOCK_DGRAM)
-        self.dest = (ip, 7)
+def echo(ip: str, message: bytes):
+    """
+    Send data to echo server
+    Expect sent data to be returned from server
 
-    def set_dest(self, ip):
-        self.dest = (ip, 7)
+    :param ip: str
+    :param message: bytes
+    :return: bytes
+    """
+    with socket(AF_INET, SOCK_DGRAM) as sock:
+        sock.sendto(message, (ip, 7))
+        data = sock.recvfrom(1024)
+    return data
 
-    def message(self, data: bytes):
-        self.sendto(data, self.dest)
-        return self.recvfrom(1024)

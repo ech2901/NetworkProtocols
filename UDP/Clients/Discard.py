@@ -1,13 +1,16 @@
 from socket import socket, AF_INET, SOCK_DGRAM
 
 
-class DiscardClient(socket):
-    def __init__(self, ip):
-        socket.__init__(self, AF_INET, SOCK_DGRAM)
-        self.dest = (ip, 9)
 
-    def set_dest(self, ip):
-        self.dest = (ip, 9)
+def discard(ip: str, message: bytes):
+    """
+    Send data to the discard server
+    Expect no returned information
 
-    def message(self, data: bytes):
-        self.sendto(data, self.dest)
+    :param ip: str
+    :param message: bytes
+    :return: None
+    """
+    with socket(AF_INET, SOCK_DGRAM) as sock:
+        sock.sendto(message, (ip, 9))
+
