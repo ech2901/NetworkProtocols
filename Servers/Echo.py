@@ -5,6 +5,9 @@ import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 
+# Echo Protocol described in RFC-862
+# https://tools.ietf.org/html/rfc862
+
 
 class TCPEchoHandler(BaseRequestHandler):
     def handle(self):

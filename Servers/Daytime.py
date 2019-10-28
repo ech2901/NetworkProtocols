@@ -6,6 +6,8 @@ import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 
+# Daytime Protocol described in RFC-867
+# https://tools.ietf.org/html/rfc867
 
 class TCPDaytimeHandler(BaseRequestHandler):
     def handle(self):

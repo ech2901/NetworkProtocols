@@ -6,6 +6,8 @@ import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 
+# Daytime Protocol described in RFC-865
+# https://tools.ietf.org/html/rfc865
 
 class TCPQOTDHandler(BaseRequestHandler):
     def handle(self):

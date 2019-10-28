@@ -5,6 +5,8 @@ import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 
+# Discard Protocol described in RFC-863
+# https://tools.ietf.org/html/rfc863
 
 class TCPDiscardHandler(BaseRequestHandler):
     def handle(self):
