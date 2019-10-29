@@ -38,7 +38,7 @@ class UDPQOTDHandler(BaseRequestHandler):
 class TCPQOTDServer(TCPServer):
     def __init__(self, ip, message: bytes = b''):
         TCPServer.__init__(self, ip, 17, TCPQOTDHandler)
-        # String format for server to respond with
+        # Message to send to clients
         self.message = message
 
     def set_message(self, message: bytes):
@@ -48,7 +48,7 @@ class TCPQOTDServer(TCPServer):
 class UDPQOTDServer(UDPServer):
     def __init__(self, ip, message: bytes = b''):
         UDPServer.__init__(self, ip, 17, UDPQOTDHandler)
-        # String format for server to respond with
+        # Message to send to clients
         self.message = message
 
     def set_message(self, message: bytes):
