@@ -48,6 +48,9 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             return 'QUIT'
         return line.lower()
 
+    def default(self, line):
+        self.server.send(b'500 Syntax error, command unrecognized.')
+
     def do_EOF(self, arg):
         logging.info(f'{self.client_address[0]} closed connection forcefully.')
         return True
@@ -109,7 +112,9 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_rein(self, arg):
-        pass
+        self.username = ''
+        self.directory = ''
+        self.request.send(b'220 Service ready.')
 
     def do_quit(self, arg):
         if arg:
