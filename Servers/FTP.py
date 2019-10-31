@@ -155,7 +155,28 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_type(self, arg):
-        pass
+        if arg == '':
+            # Check to make sure parameters were provided
+            self.request.send(b'501 Syntax error in parameters or arguments.')
+            return
+
+
+        if self.directory == '':
+            # Check to see if we're logged in.
+            self.request.send(b'530 Not logged in.')
+            return
+
+        if arg == 'a' or arg == 'a n':
+            # If ASCII or ASCII Non-print
+            self.binary = False
+            self.request.send(b'200 Binary flag set to OFF')
+        elif arg == 'i' or arg == 'l 8':
+            # If Image or Bytes
+            self.binary = True
+            self.request.send(b'200 Binary flag set to ON')
+        else:
+            self.request.send(b'504 Command not implemented for that parameter.')
+
 
     def do_stru(self, arg):
         pass
@@ -201,8 +222,10 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
     def do_pwd(self, arg):
         if arg:
+            # PWD can not accept arguments
             self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
         elif self.directory:
+            # Send directory to client
             self.request.send(f'257 "{self.directory}"\r\n'.encode())
         elif self.username == '':
             self.request.send(b'550 Requested action not taken.\r\n')
@@ -222,8 +245,10 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
     def do_syst(self, arg):
         if arg:
+            # SYST can not have arguments
             self.request.send(b'501 Syntax error in parameters or arguments.')
             return
+        # Return info about server operating system EG: Windows-10
         self.request.send(f'215 {platform(terse=True)}'.encode())
 
     def do_stat(self, arg):
