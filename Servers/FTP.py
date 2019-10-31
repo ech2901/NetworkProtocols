@@ -5,6 +5,7 @@ from cmd import Cmd
 from os import path, urandom, sep
 from hashlib import pbkdf2_hmac
 from string import digits, whitespace, punctuation
+from platform import platform
 
 import logging
 
@@ -19,16 +20,17 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
 
         sock_read = self.request.makefile('r')
-        sock_write = self.request.makefile('w')
 
         Cmd.__init__(self, stdin=sock_read)
         self.use_rawinput = False
-        self.prompt = f'{self.server.ip}:  '
+        self.prompt = ''
 
         logging.info(f'{self.client_address[0]} CONNECTED')
 
         self.username = ''
         self.directory = ''
+        self.binary = False
+
 
     def finish(self):
         self.server.active = self.server.active - 1
@@ -46,10 +48,14 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         if self.server.shuttingdown:
             # Check to see if server shutting down
             return 'QUIT'
+
+        logging.info(f'{self.client_address[0]}: {line}')
+
         return line.lower()
 
     def default(self, line):
-        self.server.send(b'500 Syntax error, command unrecognized.')
+        logging.info(f'Unrecognized command.')
+        self.request.send(b'500 Syntax error, command unrecognized.\r\n')
 
     def do_EOF(self, arg):
         logging.info(f'{self.client_address[0]} closed connection forcefully.')
@@ -61,7 +67,8 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
     def do_user(self, username):
         if ' ' in username or username[0] in whitespace+punctuation+digits:
             # Check for invalid characters in username
-            self.request.send(b'501 Syntax error in USER argument')
+            logging.info(f'Failed to log in: Bad characters in username.')
+            self.request.send(b'501 Syntax error in USER argument.\r\n')
             return
 
         # Check to see if a private user is trying to login
@@ -69,11 +76,14 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.username = username
             if self.server.req_pass:
                 # If a password is required to log in, ask for password
+                logging.info(f'{self.username} failed to log in: Need password.')
                 self.request.send(b'331 User name okay, need password.\r\n')
                 return
             # If a password isn't required to log in, allow to proceed'
+            logging.info(f'{self.username} logged in.')
             self.request.send(b'230 User logged in, proceed.\r\n')
         else:
+            logging.info(f'Failed to log in: Bad username.')
             self.request.send(b'530 User name not okay.\r\n')
 
     def do_pass(self, password):
@@ -81,17 +91,22 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
             if set(password) & set(whitespace):
                 # Check for invalid characters in username
+                logging.info(f'{self.username} failed to log in: Bad password characters.')
                 self.request.send(b'501 Syntax error in PASS argument\r\n')
                 return
 
             if self.username == '':
-                self.request.send(b'503 Bad sequence of commands.')
+                logging.info(f'Failed to log in: Bad sequence of commands.')
+                self.request.send(b'503 Bad sequence of commands.\r\n')
+                return
 
             directory = self.server.login(self.username, password)
             if directory:
+                logging.info(f'{self.username} logged in.')
                 self.directory = directory
                 self.request.send(b'230 User logged in, proceed.\r\n')
             else:
+                logging.info(f'{self.username} failed to log in: Bad password.')
                 self.request.send(b'530 Password not okay.\r\n')
                 return True
 
@@ -112,9 +127,10 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_rein(self, arg):
+        logging.info(f'{self.username} Logged out.')
         self.username = ''
         self.directory = ''
-        self.request.send(b'220 Service ready.')
+        self.request.send(b'220 Service ready.\r\n')
 
     def do_quit(self, arg):
         if arg:
@@ -184,7 +200,16 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_pwd(self, arg):
-        pass
+        if arg:
+            self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
+        elif self.directory:
+            self.request.send(f'257 "{self.directory}"\r\n'.encode())
+        elif self.username == '':
+            self.request.send(b'550 Requested action not taken.\r\n')
+
+    def do_xpwd(self, arg):
+        # Some FTP clients assume FTP always has 4-character commands
+        self.do_pwd(arg)
 
     def do_list(self, arg):
         pass
@@ -196,7 +221,10 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_syst(self, arg):
-        pass
+        if arg:
+            self.request.send(b'501 Syntax error in parameters or arguments.')
+            return
+        self.request.send(f'215 {platform(terse=True)}'.encode())
 
     def do_stat(self, arg):
         pass
@@ -218,7 +246,7 @@ class FTPCommandServer(TCPServer):
         self.userdata = dict()
 
         if public:
-            self.userdata['anonymous'] = (None, None, fr'{self.root}{sep}public')
+            self.userdata['anonymous'] = (None, None, fr'{sep}public')
 
     def hash(self, password, salt):
         return pbkdf2_hmac('sha256', password, salt, 100_000).hex()
@@ -253,5 +281,9 @@ class FTPCommandServer(TCPServer):
             pass
 
 
+if __name__ == '__main__':
+    server = FTPCommandServer('127.0.0.1')
+    server.add_user('tester', 'test')
+    server.start()
 
 
