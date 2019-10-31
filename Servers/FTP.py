@@ -6,6 +6,8 @@ from os import path, urandom, sep
 from hashlib import pbkdf2_hmac
 from string import digits, whitespace, punctuation
 from platform import platform
+from threading import Thread
+from socket import socket, AF_INET, SOCK_STREAM
 
 import logging
 
@@ -30,7 +32,8 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.username = ''
         self.directory = ''
         self.binary = False
-
+        self.history = []
+        self.connection = None
 
     def finish(self):
         self.server.active = self.server.active - 1
@@ -80,6 +83,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 self.request.send(b'331 User name okay, need password.\r\n')
                 return
             # If a password isn't required to log in, allow to proceed'
+            self.directory = self.server.login(username, '')
             logging.info(f'{self.username} logged in.')
             self.request.send(b'230 User logged in, proceed.\r\n')
         else:
@@ -118,10 +122,39 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(b'202 Command not implemented, Server does not support ACCT command.\r\n')
 
     def do_cwd(self, arg):
-        pass
+        if arg == '':
+            # CDUP can not have arguments
+            self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
+            return
+
+        new_dir = f'{self.directory}{path.sep}{arg}'
+
+        if path.exists(new_dir) and path.isdir(new_dir):
+            self.history.append(self.directory)
+            self.directory = new_dir
+            self.request.send(b'250 Okay.\r\n')
+            return
+
+        self.request.send(f'550 {new_dir}: No such file or directory found.\r\n'.encode())
+
+    def do_xcwd(self, arg):
+        # Some clients treat XCWD as CWD
+        return self.do_cwd(arg)
 
     def do_cdup(self, arg):
-        pass
+        if arg:
+            # CDUP can not have arguments
+            self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
+            return
+        if self.history:
+            self.directory = self.history.pop(-1)
+            self.request.send(b'250 Okay.\r\n')
+        else:
+            self.request.send(b'550 Unable to go further back.\r\n')
+
+    def do_xcup(self, arg):
+        # Some clients treat XCUP the same as CDUP
+        return self.do_cdup(arg)
 
     def do_smnt(self, arg):
         pass
@@ -149,7 +182,19 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         return True
 
     def do_port(self, arg):
-        pass
+        if arg == '' or arg.count(',') != 5:
+            # CDUP can not have arguments
+            self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
+            return
+
+        addr_info = arg.split(',', 5)
+        ip = '.'.join(addr_info[:4])
+        port = (int(addr_info[4]) << 8) | int(addr_info[5])
+
+        conn = socket(AF_INET, SOCK_STREAM)
+        conn_thread = Thread(target=conn.connect, args=((ip, port)))
+        self.connection = (conn, conn_thread)
+        self.request.send(b'200 Ready to connect.\r\n')
 
     def do_pasv(self, arg):
         pass
@@ -177,12 +222,17 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         else:
             self.request.send(b'504 Command not implemented for that parameter.')
 
-
     def do_stru(self, arg):
-        pass
+        if arg == 'f':
+            self.request.send(b'200 FILE structure selected.')
+            return
+        self.request.send(b'504 Command not implemented for that parameter.')
 
     def do_mode(self, arg):
-        pass
+        if arg == 's':
+            self.request.send(b'200 STREAM mode selected.')
+            return
+        self.request.send(b'504 Command not implemented for that parameter.')
 
     def do_retr(self, arg):
         pass
@@ -232,7 +282,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
     def do_xpwd(self, arg):
         # Some FTP clients assume FTP always has 4-character commands
-        self.do_pwd(arg)
+        return self.do_pwd(arg)
 
     def do_list(self, arg):
         pass
@@ -246,10 +296,10 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
     def do_syst(self, arg):
         if arg:
             # SYST can not have arguments
-            self.request.send(b'501 Syntax error in parameters or arguments.')
+            self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
             return
         # Return info about server operating system EG: Windows-10
-        self.request.send(f'215 {platform(terse=True)}'.encode())
+        self.request.send(f'215 {platform(terse=True)}\r\n'.encode())
 
     def do_stat(self, arg):
         pass
@@ -273,6 +323,7 @@ class FTPCommandServer(TCPServer):
         if public:
             self.userdata['anonymous'] = (None, None, fr'{sep}public')
 
+        pass
     def hash(self, password, salt):
         return pbkdf2_hmac('sha256', password, salt, 100_000).hex()
 
@@ -294,9 +345,13 @@ class FTPCommandServer(TCPServer):
         if username in self.userdata:
             hashed_pass, salt, directory = self.userdata[username]
 
-            if hashed_pass == self.hash(password.encode(), salt):
-                logging.info(f'{username} logged in')
+            if self.req_pass:
+                if hashed_pass == self.hash(password.encode(), salt):
+                    logging.info(f'{username} logged in')
+                    return directory
+            else:
                 return directory
+
             return
 
     def shutdown(self):
