@@ -9,11 +9,12 @@ from platform import platform
 from socket import socket, AF_INET, SOCK_STREAM
 from datetime import datetime, timedelta
 from threading import Thread
+from itertools import count
 
 import logging
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
-sep = '//'
+sep = r'/'
 
 # FTP Protocol described in RFC-959
 # https://tools.ietf.org/html/rfc959
@@ -37,6 +38,12 @@ class ActiveConnection(Thread):
     def send(self, data):
         self.fd_write.write(data)
 
+    def send_blank(self):
+        self.fd_write.write(b'' if self.binary else '')
+
+    def send_crlf(self):
+        self.fd_write.write(b'\r\n' if self.binary else '\r\n')
+
     def close(self):
         self.sock.close()
 
@@ -44,15 +51,15 @@ class ActiveConnection(Thread):
         self.fd_write = self.sock.makefile('wb' if binary else 'w')
         self.fd_read = self.sock.makefile('rb' if self.binary else 'r')
 
-    def read(self, fileloc):
+    def read(self, fileloc, skip):
         with open(fileloc, 'rb' if self.binary else 'r') as file:
             self.fd_write.write(file.read())
 
-    def write(self, fileloc):
+    def write(self, fileloc, skip):
         with open(fileloc, 'wb' if self.binary else 'w') as file:
             file.write(self.fd_read.read())
 
-    def append(self, fileloc):
+    def append(self, fileloc, skip):
         with open(fileloc, 'ab' if self.binary else 'a') as file:
             file.write(self.fd_read.read())
 
@@ -97,7 +104,7 @@ class PassiveConnection(Thread):
 
     def read(self, fileloc, skip):
         with open(fileloc, 'rb' if self.binary else 'r') as file:
-            self.send(file.read())
+            self.send(file.read()[skip:])
 
     def write(self, fileloc, skip):
         with open(fileloc, 'wb' if self.binary else 'w') as file:
@@ -106,6 +113,7 @@ class PassiveConnection(Thread):
     def append(self, fileloc, skip):
         with open(fileloc, 'ab' if self.binary else 'a') as file:
             file.write(self.fd_read.read())
+
 
 class FTPCommandHandler(BaseRequestHandler, Cmd):
     def setup(self):
@@ -159,7 +167,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         stats = entry.stat()
 
         type = '-' if entry.is_file() else 'd'
-        access = 'rw-r--r-- 1 owner group' if entry.is_file() else 'rwxr-xr-x 1 owner grou'
+        access = f'rw-r--r-- 1 {self.username}' if entry.is_file() else f'rwxr-xr-x 1 {self.username}'
         size = f'{stats.st_size}'.rjust(13, ' ')
 
         if datetime.now()-timedelta(days=30*6) > datetime.fromtimestamp(stats.st_mtime):
@@ -240,13 +248,13 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
             return
 
-        new_dir = f'{self.home}{self.selected}{path.sep}{arg}'
+        new_dir = f'{self.home}{self.selected}{sep}{arg}'
 
         if path.exists(new_dir) and path.isdir(new_dir):
             if self.check_home(new_dir):
                 self.history.append(self.selected)
-                self.selected = arg
-                logging.info(f'New CWD is: {self.home}{arg}')
+                self.selected = f'{sep}{arg.strip(sep)}'
+                logging.info(f'New CWD is: {self.home}{sep}{arg}')
                 self.request.send(b'250 Okay.\r\n')
                 return
 
@@ -372,7 +380,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(b'150 Ready to transmit.\r\n')
 
         self.connection.start()
-        self.connection.join()
+        self.connection.join(timeout=30)
 
         file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
 
@@ -389,24 +397,95 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection.read(file, self.skip)
         self.connection.close()
         self.connection = None
+        self.skip = 0
 
         logging.info(f'{self.client_address[0]}: Done transmitting.')
         self.request.send(b'226 Done transmitting.\r\n')
 
     def do_stor(self, arg):
-        pass
+        logging.info(f'{self.client_address[0]}: Ready to transmit.')
+        self.request.send(b'150 Ready to transmit.\r\n')
+
+        self.connection.start()
+        self.connection.join(timeout=30)
+
+        file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
+
+        try:
+            self.connection.write(file, self.skip)
+        except Exception as e:
+            logging.error(e)
+            self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
+            return
+        self.connection.close()
+        self.connection = None
+        self.skip = 0
+
+        logging.info(f'{self.client_address[0]}: Done transmitting.')
+        self.request.send(b'226 Done transmitting.\r\n')
 
     def do_stou(self, arg):
-        pass
+        logging.info(f'{self.client_address[0]}: Ready to transmit.')
+        self.request.send(b'150 Ready to transmit.\r\n')
+
+        self.connection.start()
+        self.connection.join(timeout=30)
+
+        if arg:
+            file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
+        else:
+            file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}new_file'
+
+        if path.exists(file):
+            head, tail = path.splitext(file)
+            for i in count(1, 1):
+                test = f'{head}({i}){tail}'
+                if not path.exists(test):
+                    file = test
+                    break
+        try:
+            self.connection.append(file, self.skip)
+        except Exception as e:
+            logging.error(e)
+            self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
+            return
+        self.connection.close()
+        self.connection = None
+        self.skip = 0
+
+        logging.info(f'{self.client_address[0]}: Done transmitting.')
+        self.request.send(b'226 Done transmitting.\r\n')
 
     def do_appe(self, arg):
-        pass
+        logging.info(f'{self.client_address[0]}: Ready to transmit.')
+        self.request.send(b'150 Ready to transmit.\r\n')
+
+        self.connection.start()
+        self.connection.join(timeout=30)
+
+        file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
+
+        try:
+            self.connection.append(file, self.skip)
+        except Exception as e:
+            logging.error(e)
+            self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
+            return
+        self.connection.close()
+        self.connection = None
+        self.skip = 0
+
+        logging.info(f'{self.client_address[0]}: Done transmitting.')
+        self.request.send(b'226 Done transmitting.\r\n')
 
     def do_allo(self, arg):
-        pass
+        self.request.send(b'202 Command not implemented, superfluous at this site.')
 
     def do_rest(self, arg):
-        pass
+        if arg.isalnum():
+            self.skip = int(arg)
+            logging.info(f'{self.client_address[0]}: Set skip to {arg}')
+            self.request.send(b'350 set new skip value.\r\n')
 
     def do_rnfr(self, arg):
         pass
@@ -455,7 +534,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         try:
             self.connection.start()
-            self.connection.join()
+            self.connection.join(timeout=30)
         except ConnectionError as e:
             logging.info(e)
             self.request.send(b'425 No TCP connection established on data connection\r\n')
@@ -465,7 +544,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'426 Error on TCP connection. Try again.\r\n')
             return
 
-        dir = list(scandir(f'{self.home}{self.selected}'))
+        dir = list(sorted(scandir(f'{self.home}{self.selected}'), key=sort_dir_entry))
         if dir:
             logging.info(dir)
             for entry in dir:
@@ -495,7 +574,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         try:
             self.connection.start()
-            self.connection.join()
+            self.connection.join(timeout=30)
         except ConnectionError as e:
             logging.info(e)
             self.request.send(b'425 No TCP connection established on data connection\r\n')
@@ -505,7 +584,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'426 Error on TCP connection. Try again.\r\n')
             return
 
-        dir = list(sorted(scandir(f'{self.home}{self.selected}')))
+        dir = list(sorted(scandir(f'{self.home}{self.selected}'), key=sort_dir_entry))
         if dir:
             logging.info(dir)
             for entry in dir:
@@ -549,7 +628,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                     logging.info(f'Size of {arg}: {size}')
                     self.request.send(f'213 {size}\r\n'.encode())
                     return
-            self.request.send(b'550 Unable to find file.')
+            self.request.send(b'550 Unable to find file.\r\n')
             return
         self.request.send(b'530 Need to sign in.\r\n')
 
@@ -611,6 +690,11 @@ class FTPCommandServer(TCPServer):
         while self.active:
             pass
 
+
+def sort_dir_entry(entry):
+    if entry.is_file():
+        return f'{1}{entry.name}'
+    return f'{0}{entry.name}'
 
 if __name__ == '__main__':
     server = FTPCommandServer('127.0.0.1')
