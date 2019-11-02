@@ -2,7 +2,7 @@ from socketserver import BaseRequestHandler
 from Servers import TCPServer
 
 from cmd import Cmd
-from os import path, urandom, mkdir, rmdir,scandir
+from os import path, urandom, mkdir, rmdir, remove, rename, scandir
 from hashlib import pbkdf2_hmac
 from string import digits, whitespace, punctuation
 from platform import platform
@@ -254,6 +254,10 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
             return
 
+        if arg == '..':
+            # Prevent breaking out of local filesystem
+            return self.do_cdup('')
+
         new_dir = self.true_fileloc(arg)
 
         if self.exists(arg) and path.isdir(new_dir):
@@ -501,10 +505,30 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_dele(self, arg):
-        pass
+        if self.exists(arg):
+            try:
+                remove(self.true_fileloc(arg))
+                self.request.send(b'250 File removed.')
+                return
+
+            except Exception as e:
+                logging.error(e)
+
+        self.request.send(b'450 Requested file action not taken.')
 
     def do_rmd(self, arg):
-        pass
+
+        self.request.send(f'257 Ready to remove directory: "{self.selected}{sep}{arg}"\r\n'.encode())
+
+        try:
+            rmdir(self.true_fileloc(arg))
+            self.request.send(b'250 Directory removed.\r\n')
+        except Exception as e:
+            logging.error(e)
+            self.request.send(b'550 Could not create directory.\r\n')
+
+    def do_xrmd(self, arg):
+        return self.do_rmd(arg)
 
     def do_mkd(self, arg):
 
@@ -603,7 +627,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         if dir:
             logging.info(dir)
             for entry in dir:
-                data = f'{entry.path}\r\n'
+                data = f'{self.selected}{entry.name}\r\n'
                 logging.info(f'Sending {self.client_address[0]}: {data.strip()}')
                 self.connection.send(data.encode() if self.binary else data)
                 self.connection.send_crlf()
