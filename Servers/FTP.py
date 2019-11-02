@@ -2,7 +2,7 @@ from socketserver import BaseRequestHandler
 from Servers import TCPServer
 
 from cmd import Cmd
-from os import path, urandom, mkdir, scandir
+from os import path, urandom, mkdir, rmdir,scandir
 from hashlib import pbkdf2_hmac
 from string import digits, whitespace, punctuation
 from platform import platform
@@ -163,6 +163,12 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                     )
                                 ) == path.abspath(self.home)
 
+    def exists(self, fileloc):
+        return path.exists(f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{fileloc}')
+
+    def true_fileloc(self, fileloc):
+        return f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{fileloc}'
+
     def format_entry(self, entry):
         stats = entry.stat()
 
@@ -248,9 +254,9 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
             return
 
-        new_dir = f'{self.home}{self.selected}{sep}{arg}'
+        new_dir = self.true_fileloc(arg)
 
-        if path.exists(new_dir) and path.isdir(new_dir):
+        if self.exists(arg) and path.isdir(new_dir):
             if self.check_home(new_dir):
                 self.history.append(self.selected)
                 self.selected = f'{sep}{arg.strip(sep)}'
@@ -258,7 +264,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 self.request.send(b'250 Okay.\r\n')
                 return
 
-        self.request.send(f'550 {new_dir}: No such file or directory found.\r\n'.encode())
+        self.request.send(f'550 {arg}: No such file or directory found.\r\n'.encode())
 
     def do_xcwd(self, arg):
         # Some clients treat XCWD as CWD
@@ -382,7 +388,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection.start()
         self.connection.join(timeout=30)
 
-        file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
+        file = self.true_fileloc(arg)
 
         if path.isdir(file):
             logging.info(f'{self.client_address[0]}: Tried downloading a directory.')
@@ -409,7 +415,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection.start()
         self.connection.join(timeout=30)
 
-        file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
+        file = self.true_fileloc(arg)
 
         try:
             self.connection.write(file, self.skip)
@@ -424,27 +430,25 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         logging.info(f'{self.client_address[0]}: Done transmitting.')
         self.request.send(b'226 Done transmitting.\r\n')
 
-    def do_stou(self, arg):
+    def do_stou(self, file):
         logging.info(f'{self.client_address[0]}: Ready to transmit.')
         self.request.send(b'150 Ready to transmit.\r\n')
 
         self.connection.start()
         self.connection.join(timeout=30)
 
-        if arg:
-            file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
-        else:
-            file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}new_file'
+        if not file:
+            file = 'new_file'
 
-        if path.exists(file):
+        if self.exists(file):
             head, tail = path.splitext(file)
             for i in count(1, 1):
                 test = f'{head}({i}){tail}'
-                if not path.exists(test):
+                if not self.exists(test):
                     file = test
                     break
         try:
-            self.connection.append(file, self.skip)
+            self.connection.write(self.true_fileloc(file), self.skip)
         except Exception as e:
             logging.error(e)
             self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
@@ -453,8 +457,8 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection = None
         self.skip = 0
 
-        logging.info(f'{self.client_address[0]}: Done transmitting.')
-        self.request.send(b'226 Done transmitting.\r\n')
+        logging.info(f'{self.client_address[0]}: Done transmitting. Saved as {file}')
+        self.request.send(f'226 Saved as {file}.\r\n'.encode())
 
     def do_appe(self, arg):
         logging.info(f'{self.client_address[0]}: Ready to transmit.')
@@ -463,7 +467,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection.start()
         self.connection.join(timeout=30)
 
-        file = f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{arg}'
+        file = self.true_fileloc(arg)
 
         try:
             self.connection.append(file, self.skip)
@@ -503,7 +507,18 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_mkd(self, arg):
-        pass
+
+        self.request.send(f'257 Ready to make directory: "{self.selected}{sep}{arg}"\r\n'.encode())
+
+        try:
+            mkdir(self.true_fileloc(arg))
+            self.request.send(b'250 Directory created.\r\n')
+        except Exception as e:
+            logging.error(e)
+            self.request.send(b'550 Could not create directory.\r\n')
+
+    def do_xmkd(self, arg):
+        return self.do_mkd(arg)
 
     def do_pwd(self, arg):
         if self.home == '':
