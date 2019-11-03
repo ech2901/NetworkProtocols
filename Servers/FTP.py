@@ -13,7 +13,9 @@ from itertools import count
 
 import logging
 
-logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO,
+                    )
 sep = r'/'
 
 # FTP Protocol described in RFC-959
@@ -125,7 +127,14 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.use_rawinput = False
         self.prompt = ''
 
-        logging.info(f'{self.client_address[0]} CONNECTED')
+        self.logging = logging.getLogger('(Not signed in)')
+
+        fh = logging.FileHandler(f'{self.server.root}{sep}{self.client_address[0]}.log')
+        fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        self.logging.addHandler(fh)
+
+
+        self.logging.info('CONNECTED')
 
         self.username = ''
         self.home = ''
@@ -138,21 +147,22 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
     def finish(self):
         self.server.active = self.server.active - 1
+        
 
     def handle(self):
         try:
             self.request.send(b'220 Service ready.\r\n')
             self.cmdloop()
-        except ConnectionAbortedError as e:
-            logging.info(f'{self.client_address[0]} closed connection forcefully.')
+        except (ConnectionAbortedError, ConnectionResetError):
+            self.logging.info('closed connection forcefully.')
         except Exception as e:
-            logging.exception(e)
+            self.logging.exception(e)
 
     def precmd(self, line):
         if self.server.shuttingdown:
             # Check to see if server shutting down
             return 'QUIT'
-        logging.info(f'{self.client_address[0]}: {line}')
+            self.logging.info(line)
 
         return line.lower()
 
@@ -186,11 +196,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         return f'{type}{access}{size} {modification} {entry.name}'
 
     def default(self, line):
-        logging.info(f'Unrecognized command.')
+        self.logging.info(f'Unrecognized command.')
         self.request.send(b'500 Syntax error, command unrecognized.\r\n')
 
     def do_EOF(self, arg):
-        logging.info(f'{self.client_address[0]} closed connection forcefully.')
+        self.logging.info('closed connection forcefully.')
         return True
 
     def do_noop(self, arg):
@@ -199,7 +209,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
     def do_user(self, username):
         if len(username) == 0 or ' ' in username or username[0] in whitespace+punctuation+digits:
             # Check for invalid characters in username
-            logging.info(f'Failed to log in: Bad characters in username.')
+            self.logging.info(f'Failed to log in: Bad characters in username.')
             self.request.send(b'501 Syntax error in USER argument.\r\n')
             return
 
@@ -208,15 +218,16 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.username = username
             if self.server.req_pass:
                 # If a password is required to log in, ask for password
-                logging.info(f'{self.username} failed to log in: Need password.')
+                self.logging.info(f'{self.username} failed to log in: Need password.')
                 self.request.send(b'331 User name okay, need password.\r\n')
                 return
             # If a password isn't required to log in, allow to proceed'
             self.home = self.server.login(username, '')
-            logging.info(f'{self.username} logged in.')
+            self.logging.info(f'{self.username} logged in.')
+            self.logging = logging.getLogger(self.username)
             self.request.send(b'230 User logged in, proceed.\r\n')
         else:
-            logging.info(f'Failed to log in: Bad username.')
+            self.logging.info(f'Failed to log in: Bad username.')
             self.request.send(b'530 User name not okay.\r\n')
 
     def do_pass(self, password):
@@ -224,22 +235,23 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
             if set(password) & set(whitespace):
                 # Check for invalid characters in username
-                logging.info(f'{self.username} failed to log in: Bad password characters.')
+                self.logging.info(f'{self.username} failed to log in: Bad password characters.')
                 self.request.send(b'501 Syntax error in PASS argument\r\n')
                 return
 
             if self.username == '':
-                logging.info(f'Failed to log in: Bad sequence of commands.')
+                self.logging.info(f'Failed to log in: Bad sequence of commands.')
                 self.request.send(b'503 Bad sequence of commands.\r\n')
                 return
 
             directory = self.server.login(self.username, password)
             if directory:
-                logging.info(f'{self.username} logged in.')
+                self.logging.info(f'{self.username} logged in.')
+                self.logging = logging.getLogger(self.username)
                 self.home = directory
                 self.request.send(b'230 User logged in, proceed.\r\n')
             else:
-                logging.info(f'{self.username} failed to log in: Bad password.')
+                self.logging.info(f'{self.username} failed to log in: Bad password.')
                 self.request.send(b'530 Password not okay.\r\n')
                 return True
 
@@ -266,7 +278,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             if self.check_home(new_dir):
                 self.history.append(self.selected)
                 self.selected = f'{arg.strip(sep)}{sep}'
-                logging.info(f'New Working Directory is: {self.selected}')
+                self.logging.info(f'New Working Directory is: {self.selected}')
                 self.request.send(b'250 Okay.\r\n')
                 return
 
@@ -300,7 +312,8 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(b'202 Command not implemented, Server does not support SMNT command.\r\n')
 
     def do_rein(self, arg):
-        logging.info(f'{self.username} Logged out.')
+        self.logging = logging.getLogger(self.client_address[0])
+        self.logging.info(f'{self.username} Logged out.')
         self.username = ''
         self.selected = ''
         self.request.send(b'220 Service ready.\r\n')
@@ -313,11 +326,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         if self.server.shuttingdown:
             # In the case of the server shutting down, notify client on next command
-            logging.info(f'{self.client_address[0]} closed connection.')
+            self.logging.info('closed connection.')
             self.request.send(b'421 Service not available, closing control connection.\r\n')
             return True
 
-        logging.info(f'{self.client_address[0]} closed connection.')
+        self.logging.info('closed connection.')
         self.request.send(b'221 Service closing control connection.\r\n')
         return True
 
@@ -343,7 +356,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection = PassiveConnection(self.server.ip, binary=self.binary)
 
         resp = f'227 Entering passive mode ({self.connection.get_str()}).\r\n'
-        logging.info(f'{self.client_address[0]}: {resp.rstrip()}')
+        self.logging.info(resp.rstrip())
 
         self.request.send(resp.encode())
 
@@ -388,8 +401,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
     def do_retr(self, arg):
 
-
-        logging.info(f'{self.client_address[0]}: Ready to transmit.')
+        self.logging.info('Ready to transmit.')
         self.request.send(b'150 Ready to transmit.\r\n')
 
         self.connection.start()
@@ -398,12 +410,12 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         file = self.true_fileloc(arg)
 
         if path.isdir(file):
-            logging.info(f'{self.client_address[0]}: Tried downloading a directory.')
+            self.logging.info('Tried downloading a directory.')
             self.request.send(b'451 Requested action aborted. Can not download directory like a file.\r\n')
             return
 
         if not path.exists(file):
-            logging.info(f'{self.client_address[0]}: Tried downloading a file that does not exist.')
+            self.logging.info('Tried downloading a file that does not exist.')
             self.request.send(b'451 Requested action aborted. Can not find file.\r\n')
             return
 
@@ -412,12 +424,12 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection = None
         self.skip = 0
 
-        logging.info(f'{self.client_address[0]}: Done transmitting.')
+        self.logging.info('Done transmitting.')
         self.request.send(b'226 Done transmitting.\r\n')
 
     def do_stor(self, arg):
-        logging.info(f'{self.client_address[0]}: Ready to transmit.')
-        self.request.send(b'150 Ready to transmit.\r\n')
+        self.logging.info('Ready to recieve.')
+        self.request.send(b'150 Ready to recieve.\r\n')
 
         self.connection.start()
         self.connection.join(timeout=30)
@@ -427,19 +439,19 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         try:
             self.connection.write(file, self.skip)
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
             return
         self.connection.close()
         self.connection = None
         self.skip = 0
 
-        logging.info(f'{self.client_address[0]}: Done transmitting.')
-        self.request.send(b'226 Done transmitting.\r\n')
+        self.logging.info('Done recieving.')
+        self.request.send(b'226 Done recieving.\r\n')
 
     def do_stou(self, file):
-        logging.info(f'{self.client_address[0]}: Ready to transmit.')
-        self.request.send(b'150 Ready to transmit.\r\n')
+        self.logging.info('Ready to recieve.')
+        self.request.send(b'150 Ready to recieve.\r\n')
 
         self.connection.start()
         self.connection.join(timeout=30)
@@ -457,19 +469,19 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         try:
             self.connection.write(self.true_fileloc(file), self.skip)
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
             return
         self.connection.close()
         self.connection = None
         self.skip = 0
 
-        logging.info(f'{self.client_address[0]}: Done transmitting. Saved as {file}')
+        self.logging.info(f'Done recieving. Saved as {file}')
         self.request.send(f'226 Saved as {file}.\r\n'.encode())
 
     def do_appe(self, arg):
-        logging.info(f'{self.client_address[0]}: Ready to transmit.')
-        self.request.send(b'150 Ready to transmit.\r\n')
+        self.logging.info('Ready to recieve.')
+        self.request.send(b'150 Ready to recieve.\r\n')
 
         self.connection.start()
         self.connection.join(timeout=30)
@@ -479,15 +491,15 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         try:
             self.connection.append(file, self.skip)
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'451 Requested action aborted. Local error in processing.\r\n')
             return
         self.connection.close()
         self.connection = None
         self.skip = 0
 
-        logging.info(f'{self.client_address[0]}: Done transmitting.')
-        self.request.send(b'226 Done transmitting.\r\n')
+        self.logging.info('Done recieving.')
+        self.request.send(b'226 Done recieving.\r\n')
 
     def do_allo(self, arg):
         self.request.send(b'202 Command not implemented, superfluous at this site.')
@@ -495,13 +507,13 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
     def do_rest(self, arg):
         if arg.isalnum():
             self.skip = int(arg)
-            logging.info(f'{self.client_address[0]}: Set skip to {arg}')
+            self.logging.info(f'Set skip to {arg}')
             self.request.send(b'350 set new skip value.\r\n')
 
     def do_rnfr(self, arg):
         file = self.true_fileloc(arg)
         if path.exists(file) and self.check_home(file):
-            logging.info(f'{file} exists and is ready to be renamed')
+            self.logging.info(f'{file} exists and is ready to be renamed')
             self.request.send(b'350 file exists and is ready to be renamed.')
             self.rename = file
 
@@ -523,7 +535,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 return
 
             except Exception as e:
-                logging.error(e)
+                self.logging.error(e)
 
         self.request.send(b'450 Requested file action not taken.\r\n')
 
@@ -537,7 +549,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'250 Directory removed.\r\n')
 
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'550 Could not delete directory.\r\n')
 
     def do_xrmd(self, arg):
@@ -551,7 +563,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             mkdir(self.true_fileloc(arg))
             self.request.send(f'250 "{arg}" Directory created.\r\n'.encode())
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'550 Could not create directory.\r\n')
 
     def do_xmkd(self, arg):
@@ -588,29 +600,29 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.connection.start()
             self.connection.join(timeout=30)
         except ConnectionError as e:
-            logging.info(e)
+            self.logging.info(e)
             self.request.send(b'425 No TCP connection established on data connection\r\n')
             return
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'426 Error on TCP connection. Try again.\r\n')
             return
 
-        dir = list(sorted(scandir(self.true_fileloc(arg)), key=sort_dir_entry))
+        dir = list(sorted(scandir(self.true_fileloc()), key=sort_dir_entry))
         if dir:
-            logging.info(dir)
+            self.logging.info(dir)
             for entry in dir:
                 data = self.format_entry(entry)
-                logging.info(f'Sending {self.client_address[0]}: {data.strip()}')
+                self.logging.info(data.strip())
                 self.connection.send(data.encode() if self.binary else data)
                 self.connection.send_crlf()
 
-            logging.info('Directory successfully transmitted')
+            self.logging.info('Directory successfully transmitted')
             self.request.send(b'226 Directory successfully transmitted\r\n')
 
         else:
             self.connection.send_crlf()
-            logging.info(f'Sending {self.client_address[0]}: NO FILES IN DIRECTORY')
+            self.logging.info('No files found in directory')
             self.request.send(b'226 No files found in directory\r\n')
 
         self.connection.close()
@@ -628,30 +640,30 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.connection.start()
             self.connection.join(timeout=30)
         except ConnectionError as e:
-            logging.info(e)
+            self.logging.info(e)
             self.request.send(b'425 No TCP connection established on data connection\r\n')
             return
         except Exception as e:
-            logging.error(e)
+            self.logging.error(e)
             self.request.send(b'426 Error on TCP connection. Try again.\r\n')
             return
 
         dir = list(sorted(scandir(self.true_fileloc()), key=sort_dir_entry))
         if dir:
-            logging.info(dir)
+            self.logging.info(dir)
             for entry in dir:
 
                 data = f'{self.selected}{entry.name}\r\n'
-                logging.info(f'Sending {self.client_address[0]}: {data.strip()}')
+                self.logging.info(data.strip())
                 self.connection.send(data.encode() if self.binary else data)
                 self.connection.send_crlf()
 
-            logging.info('Directory successfully transmitted')
+            self.logging.info('Directory successfully transmitted')
             self.request.send(b'226 Directory successfully transmitted\r\n')
 
         else:
             self.connection.send_crlf()
-            logging.info(f'Sending {self.client_address[0]}: NO FILES IN DIRECTORY')
+            self.logging.info('No files found in directory.')
             self.request.send(b'226 No files found in directory\r\n')
 
         self.connection.close()
@@ -684,7 +696,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             if path.exists(new_path):
                 if self.check_home(new_path):
                     size = path.getsize(new_path)
-                    logging.info(f'Size of {arg}: {size}')
+                    self.logging.info(f'Size of {arg}: {size}')
                     self.request.send(f'213 {size}\r\n'.encode())
                     return
             self.request.send(b'550 Unable to find file.\r\n')
