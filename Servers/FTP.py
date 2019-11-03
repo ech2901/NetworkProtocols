@@ -168,7 +168,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
     def exists(self, fileloc):
         return path.exists(f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{fileloc}')
 
-    def true_fileloc(self, fileloc):
+    def true_fileloc(self, fileloc=''):
         return f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{fileloc}'
 
     def format_entry(self, entry):
@@ -197,7 +197,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(b'200 Command okay.\r\n')
 
     def do_user(self, username):
-        if ' ' in username or username[0] in whitespace+punctuation+digits:
+        if len(username) == 0 or ' ' in username or username[0] in whitespace+punctuation+digits:
             # Check for invalid characters in username
             logging.info(f'Failed to log in: Bad characters in username.')
             self.request.send(b'501 Syntax error in USER argument.\r\n')
@@ -262,11 +262,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         new_dir = self.true_fileloc(arg)
 
-        if self.path(new_dir) and path.isdir(new_dir):
+        if path.exists(new_dir) and path.isdir(new_dir):
             if self.check_home(new_dir):
                 self.history.append(self.selected)
-                self.selected = f'{sep}{arg.strip(sep)}'
-                logging.info(f'New CWD is: {self.home}{sep}{arg}')
+                self.selected = f'{arg.strip(sep)}{sep}'
+                logging.info(f'New Working Directory is: {self.selected}')
                 self.request.send(b'250 Okay.\r\n')
                 return
 
@@ -519,24 +519,26 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         if self.exists(arg):
             try:
                 remove(self.true_fileloc(arg))
-                self.request.send(b'250 File removed.')
+                self.request.send(b'250 File removed.\r\n')
                 return
 
             except Exception as e:
                 logging.error(e)
 
-        self.request.send(b'450 Requested file action not taken.')
+        self.request.send(b'450 Requested file action not taken.\r\n')
 
     def do_rmd(self, arg):
 
-        self.request.send(f'257 Ready to remove directory: "{self.selected}{sep}{arg}"\r\n'.encode())
+        file = self.true_fileloc(arg)
+        self.request.send(f'257 Ready to remove directory: "{arg}"\r\n'.encode())
 
         try:
-            rmdir(self.true_fileloc(arg))
+            rmdir(file)
             self.request.send(b'250 Directory removed.\r\n')
+
         except Exception as e:
             logging.error(e)
-            self.request.send(b'550 Could not create directory.\r\n')
+            self.request.send(b'550 Could not delete directory.\r\n')
 
     def do_xrmd(self, arg):
         return self.do_rmd(arg)
@@ -547,7 +549,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         try:
             mkdir(self.true_fileloc(arg))
-            self.request.send(b'250 Directory created.\r\n')
+            self.request.send(f'250 "{arg}" Directory created.\r\n'.encode())
         except Exception as e:
             logging.error(e)
             self.request.send(b'550 Could not create directory.\r\n')
@@ -594,7 +596,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'426 Error on TCP connection. Try again.\r\n')
             return
 
-        dir = list(sorted(scandir(f'{self.home}{self.selected}'), key=sort_dir_entry))
+        dir = list(sorted(scandir(self.true_fileloc(arg)), key=sort_dir_entry))
         if dir:
             logging.info(dir)
             for entry in dir:
@@ -634,10 +636,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'426 Error on TCP connection. Try again.\r\n')
             return
 
-        dir = list(sorted(scandir(f'{self.home}{self.selected}'), key=sort_dir_entry))
+        dir = list(sorted(scandir(self.true_fileloc()), key=sort_dir_entry))
         if dir:
             logging.info(dir)
             for entry in dir:
+
                 data = f'{self.selected}{entry.name}\r\n'
                 logging.info(f'Sending {self.client_address[0]}: {data.strip()}')
                 self.connection.send(data.encode() if self.binary else data)
@@ -703,9 +706,11 @@ class FTPCommandServer(TCPServer):
         self.userdata = dict()
 
         if public:
-            self.userdata['anonymous'] = (None, None, fr'{sep}public')
+            self.userdata['anonymous'] = (None, None, fr'{self.root}{sep}public')
+            if not path.exists(fr'{self.root}{sep}public'):
+                mkdir(fr'{self.root}{sep}public')
 
-        pass
+
     def hash(self, password, salt):
         return pbkdf2_hmac('sha256', password, salt, 100_000).hex()
 
