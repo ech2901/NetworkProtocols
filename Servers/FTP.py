@@ -133,6 +133,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.history = []
         self.connection = None
         self.skip = 0
+        self.rename = ''
 
     def finish(self):
         self.server.active = self.server.active - 1
@@ -260,7 +261,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         new_dir = self.true_fileloc(arg)
 
-        if self.exists(arg) and path.isdir(new_dir):
+        if self.path(new_dir) and path.isdir(new_dir):
             if self.check_home(new_dir):
                 self.history.append(self.selected)
                 self.selected = f'{sep}{arg.strip(sep)}'
@@ -496,10 +497,17 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'350 set new skip value.\r\n')
 
     def do_rnfr(self, arg):
-        pass
+        file = self.true_fileloc(arg)
+        if path.exists(file) and self.check_home(file):
+            logging.info(f'{file} exists and is ready to be renamed')
+            self.request.send(b'350 file exists and is ready to be renamed.')
+            self.rename = file
 
     def do_rnto(self, arg):
-        pass
+        if self.rename:
+            file = self.true_fileloc(arg)
+            if path.exists(file) and self.check_home(file):
+                rename(self.rename, file)
 
     def do_abor(self, arg):
         pass
@@ -658,7 +666,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         pass
 
     def do_size(self, arg):
-        new_path = f'{self.home}{arg}'
+        new_path = self.true_fileloc(arg)
 
         if self.home:
             if path.exists(new_path):
