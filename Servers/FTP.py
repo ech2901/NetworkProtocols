@@ -10,11 +10,12 @@ from socket import socket, AF_INET, SOCK_STREAM
 from datetime import datetime, timedelta
 from threading import Thread
 from itertools import count
+from json import load, dump
 
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO,
+                    level=logging.INFO
                     )
 sep = r'/'
 
@@ -128,11 +129,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.prompt = ''
 
         self.logging = logging.getLogger('(Not signed in)')
+        self.logging.propagate = False
 
-        fh = logging.FileHandler(f'{self.server.root}{sep}{self.client_address[0]}.log')
+        fh = logging.FileHandler(f'{self.server.root}{path.sep}logs{path.sep}{self.client_address[0]}.log')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         self.logging.addHandler(fh)
-
 
         self.logging.info('CONNECTED')
 
@@ -147,7 +148,9 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
     def finish(self):
         self.server.active = self.server.active - 1
-        
+        for handler in self.logging.handlers:
+            self.logging.removeHandler(handler)
+
 
     def handle(self):
         try:
@@ -162,9 +165,15 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         if self.server.shuttingdown:
             # Check to see if server shutting down
             return 'QUIT'
-            self.logging.info(line)
+        self.logging.info(line)
 
         return line.lower()
+
+    def postcmd(self, stop, line):
+        if stop:
+            self.logging.name = '(Not signed in)'
+
+        return stop
 
     def check_home(self, dir):
         return path.commonpath(
@@ -224,7 +233,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             # If a password isn't required to log in, allow to proceed'
             self.home = self.server.login(username, '')
             self.logging.info(f'{self.username} logged in.')
-            self.logging = logging.getLogger(self.username)
+            self.logging.name = self.username
             self.request.send(b'230 User logged in, proceed.\r\n')
         else:
             self.logging.info(f'Failed to log in: Bad username.')
@@ -247,7 +256,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             directory = self.server.login(self.username, password)
             if directory:
                 self.logging.info(f'{self.username} logged in.')
-                self.logging = logging.getLogger(self.username)
+                self.logging.name = self.username
                 self.home = directory
                 self.request.send(b'230 User logged in, proceed.\r\n')
             else:
@@ -312,7 +321,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(b'202 Command not implemented, Server does not support SMNT command.\r\n')
 
     def do_rein(self, arg):
-        self.logging = logging.getLogger(self.client_address[0])
+        self.logging.name = '(Not signed in)'
         self.logging.info(f'{self.username} Logged out.')
         self.username = ''
         self.selected = ''
@@ -715,7 +724,13 @@ class FTPCommandServer(TCPServer):
         self.req_pass = req_pass
 
         self.root = root_dir
+        if not path.exists(f'{root_dir}{sep}logs'):
+            mkdir(f'{root_dir}{sep}logs')
+        if not path.exists(f'{root_dir}{sep}userdata'):
+            mkdir(f'{root_dir}{sep}userdata')
+
         self.userdata = dict()
+        self.load()
 
         if public:
             self.userdata['anonymous'] = (None, None, fr'{self.root}{sep}public')
@@ -735,7 +750,7 @@ class FTPCommandServer(TCPServer):
 
         if not path.exists(home_dir):
             mkdir(home_dir)
-        self.userdata[username] = (self.hash(password.encode(), salt), salt, home_dir)
+        self.userdata[username] = (self.hash(password.encode(), salt), int.from_bytes(salt, 'big'), home_dir)
 
     def check_username(self, username):
         return username in self.userdata
@@ -749,7 +764,7 @@ class FTPCommandServer(TCPServer):
             hashed_pass, salt, directory = self.userdata[username]
 
             if self.req_pass:
-                if hashed_pass == self.hash(password.encode(), salt):
+                if hashed_pass == self.hash(password.encode(), salt.to_bytes(64, 'big')):
                     logging.info(f'{username} logged in')
                     return directory
             else:
@@ -762,6 +777,16 @@ class FTPCommandServer(TCPServer):
         TCPServer.shutdown(self)
         while self.active:
             pass
+
+    def save(self):
+        with open(f'{self.root}{path.sep}userdata{path.sep}userdata.dat', 'w') as file:
+            dump(self.userdata, file)
+
+    def load(self):
+        file = f'{self.root}{path.sep}userdata{path.sep}userdata.dat'
+        if path.exists(file):
+            with open(f'{self.root}{path.sep}userdata{path.sep}userdata.dat', 'r') as file:
+                self.userdata.update(load(file))
 
 
 def sort_dir_entry(entry):
