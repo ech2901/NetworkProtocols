@@ -19,6 +19,7 @@ sep = r'/'
 # FTP Protocol described in RFC-959
 # https://tools.ietf.org/html/rfc959
 
+
 class ActiveConnection(Thread):
     def __init__(self, arg, binary):
         Thread.__init__(self, target=self.connect)
@@ -295,7 +296,8 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         return self.do_cdup(arg)
 
     def do_smnt(self, arg):
-        pass
+        # Used to mount different filesystems.
+        self.request.send(b'202 Command not implemented, Server does not support SMNT command.\r\n')
 
     def do_rein(self, arg):
         logging.info(f'{self.username} Logged out.')
@@ -510,7 +512,8 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 rename(self.rename, file)
 
     def do_abor(self, arg):
-        pass
+        # Used to abort transfer of file(s)
+        self.request.send(b'202 Command not implemented, Server does not support ABOR command.\r\n')
 
     def do_dele(self, arg):
         if self.exists(arg):
@@ -652,7 +655,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.connection = None
 
     def do_site(self, arg):
-        pass
+        # Used to provide services
+        # specific to his system that are essential to file transfer
+        # but not sufficiently universal to be included as commands in
+        # the protocol.
+        self.request.send(b'202 Command not implemented, Server does not support SITE command.\r\n')
 
     def do_syst(self, arg):
         if arg:
@@ -663,7 +670,9 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(f'215 {platform(terse=True)}\r\n'.encode())
 
     def do_stat(self, arg):
-        pass
+        # During file transfer: Status of file transfer
+        # Otherwise: Same as LIST function, but through command connection.
+        self.request.send(b'202 Command not implemented, Server does not support STAT command.\r\n')
 
     def do_size(self, arg):
         new_path = self.true_fileloc(arg)
