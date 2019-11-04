@@ -151,7 +151,6 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         for handler in self.logging.handlers:
             self.logging.removeHandler(handler)
 
-
     def handle(self):
         try:
             self.request.send(b'220 Service ready.\r\n')
@@ -732,6 +731,13 @@ class FTPCommandServer(TCPServer):
         self.userdata = dict()
         self.load()
 
+        self.logging = logging.getLogger('FTP Server')
+
+        fh = logging.FileHandler(f'{self.root}{path.sep}logs{path.sep}server.log')
+        fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        self.logging.addHandler(fh)
+
+
         if public:
             self.userdata['anonymous'] = (None, None, fr'{self.root}{sep}public')
             if not path.exists(fr'{self.root}{sep}public'):
@@ -757,7 +763,7 @@ class FTPCommandServer(TCPServer):
 
     def login(self, username, password):
         if self.public and username == 'anonymous':
-            logging.info(f'anonymous logged in with {password}')
+            self.logging.info(f'anonymous logged in with {password}')
             return self.userdata[username][2]
 
         if username in self.userdata:
@@ -765,7 +771,7 @@ class FTPCommandServer(TCPServer):
 
             if self.req_pass:
                 if hashed_pass == self.hash(password.encode(), salt.to_bytes(64, 'big')):
-                    logging.info(f'{username} logged in')
+                    self.logging.info(f'{username} logged in')
                     return directory
             else:
                 return directory
