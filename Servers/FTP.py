@@ -14,9 +14,7 @@ from json import load, dump
 
 import logging
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO
-                    )
+logging.basicConfig(level=logging.INFO)
 sep = r'/'
 
 # FTP Protocol described in RFC-959
@@ -161,7 +159,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.logging.exception(e)
 
     def precmd(self, line):
-        if self.server.shuttingdown:
+        if self.server.shutingdown:
             # Check to see if server shutting down
             return 'QUIT'
         self.logging.info(line)
@@ -332,7 +330,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'500 Syntax error, command unrecognized.\r\n')
             return
 
-        if self.server.shuttingdown:
+        if self.server.shutingdown:
             # In the case of the server shutting down, notify client on next command
             self.logging.info('closed connection.')
             self.request.send(b'421 Service not available, closing control connection.\r\n')
@@ -629,7 +627,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.request.send(b'226 Directory successfully transmitted\r\n')
 
         else:
-            self.connection.send_crlf()
+            self.connection.send_blank()
             self.logging.info('No files found in directory')
             self.request.send(b'226 No files found in directory\r\n')
 
@@ -664,13 +662,12 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 data = f'{self.selected}{entry.name}\r\n'
                 self.logging.info(data.strip())
                 self.connection.send(data.encode() if self.binary else data)
-                self.connection.send_crlf()
 
             self.logging.info('Directory successfully transmitted')
             self.request.send(b'226 Directory successfully transmitted\r\n')
 
         else:
-            self.connection.send_crlf()
+            self.connection.send_blank()
             self.logging.info('No files found in directory.')
             self.request.send(b'226 No files found in directory\r\n')
 
@@ -715,80 +712,113 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 class FTPCommandServer(TCPServer):
     def __init__(self, ip: str, public=False, req_pass=True, root_dir: str = path.curdir):
         TCPServer.__init__(self, ip, 21, FTPCommandHandler)
-        self.ip = ip
-        self.active = 0
-        self.shuttingdown = False
+        self.ip = ip  # Server IP address.
+        self.active = 0  # Active number of clients communicating.
 
-        self.public = public
-        self.req_pass = req_pass
+        self.shutingdown = False  # Flag for if server needs to shutdown.
+        self.public = public  # Flag for if the server is public. (IE: Allow anonymous log ins)
+        self.req_pass = req_pass  # Flag for if the server requires a password to sign in.
 
-        self.root = root_dir
+        self.root = root_dir  # Root directory where files are stored for the server and clients.
+        if not path.exists(f'{root_dir}{sep}users'):
+            mkdir(f'{root_dir}{sep}users')  # Directory where all user directories will be saved to.
         if not path.exists(f'{root_dir}{sep}logs'):
-            mkdir(f'{root_dir}{sep}logs')
+            mkdir(f'{root_dir}{sep}logs')  # Directory where all logs will be saved to.
         if not path.exists(f'{root_dir}{sep}userdata'):
+            # Directory where user data (IE usernames and passwords) will be stored
             mkdir(f'{root_dir}{sep}userdata')
 
+        # Dictionary containing all user data
+        # Gets loaded with saved data from disk if any.
         self.userdata = dict()
         self.load()
 
+        # Logger for the server. Stores things like what users sign in with.
         self.logging = logging.getLogger('FTP Server')
-
+        # Logger will save to disk.
         fh = logging.FileHandler(f'{self.root}{path.sep}logs{path.sep}server.log')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         self.logging.addHandler(fh)
 
 
         if public:
-            self.userdata['anonymous'] = (None, None, fr'{self.root}{sep}public')
-            if not path.exists(fr'{self.root}{sep}public'):
-                mkdir(fr'{self.root}{sep}public')
-
+            # If this is a public server, create an anonymous account with no password info.
+            public_dir = fr'{self.root}{sep}users{sep}public'
+            self.userdata['anonymous'] = (None, None, public_dir)
+            if not path.exists(public_dir):
+                # Creates the directory for the anonymous user.
+                mkdir(public_dir)
 
     def hash(self, password, salt):
+        # Used by add_user method to hash password securely for storing.
         return pbkdf2_hmac('sha256', password, salt, 100_000).hex()
 
     def add_user(self, username, password):
+        # Add a user to the server.
         if username in self.userdata:
+            # Prevent the creating of multiple users with the same username.
+            # Prevents accidental overwriting of pre-existing usernames.
             return
 
-        salt = urandom(64)
-        home_dir = fr'{self.root}{sep}{username}'
+        salt = urandom(64)  # Salt for hashing password.
+        home_dir = fr'{self.root}{sep}users{sep}{username}'  # Home directory of the user.
 
         if not path.exists(home_dir):
+            # if the directory for the doesn't exist yet, create it.
             mkdir(home_dir)
+        # Add new user to the userdata dictionary.
         self.userdata[username] = (self.hash(password.encode(), salt), int.from_bytes(salt, 'big'), home_dir)
 
     def check_username(self, username):
+        # Allows FTPCommandHandler to check if the username is able to be used.
+        # Basically a function to make slightly better
         return username in self.userdata
 
     def login(self, username, password):
+        # Try to log in a user with their password.
         if self.public and username == 'anonymous':
-            self.logging.info(f'anonymous logged in with {password}')
+            # If the server is public and the public account is trying to sign in.
+            # We don't really care what password they sign in with for this account,
+            # other than for logging purposes.
+            self.logging.info(f'anonymous logged in with "{password}"')
             return self.userdata[username][2]
 
         if username in self.userdata:
+            # Only continue if we know the username is in the dictionary.
+
+            # Get the stored data.
             hashed_pass, salt, directory = self.userdata[username]
 
             if self.req_pass:
+                # If we require a password, which we always should.
+                # Hash the given password and check the hash to what was stored.
                 if hashed_pass == self.hash(password.encode(), salt.to_bytes(64, 'big')):
-                    self.logging.info(f'{username} logged in')
+                    # If the hash matches, return the home directory for the user.
+                    self.logging.info(f'{username} logged in with "{password}"')
                     return directory
             else:
+                # If we don't require a password, just pass along the directory.
+                self.logging.info(f'{username} logged in with "{password}" (Not required).')
                 return directory
 
             return
 
     def shutdown(self):
-        self.shuttingdown = True
+        # We are trying to shut down the server.
+        # If any clients try to issue a command, inform them
+        # And close the connection.
+        self.shutingdown = True
         TCPServer.shutdown(self)
         while self.active:
             pass
 
     def save(self):
+        # Save userdata to disk in JSON format.
         with open(f'{self.root}{path.sep}userdata{path.sep}userdata.dat', 'w') as file:
             dump(self.userdata, file)
 
     def load(self):
+        # Load userdata from disk in JSON format.
         file = f'{self.root}{path.sep}userdata{path.sep}userdata.dat'
         if path.exists(file):
             with open(f'{self.root}{path.sep}userdata{path.sep}userdata.dat', 'r') as file:
@@ -796,9 +826,11 @@ class FTPCommandServer(TCPServer):
 
 
 def sort_dir_entry(entry):
+    # Key for sorted to sort DirEntry objects
     if entry.is_file():
-        return f'{1}{entry.name}'
-    return f'{0}{entry.name}'
+        # This ensures that directories always get transmitted first and file second.
+        return f'1{entry.name}'
+    return f'0{entry.name}'
 
 if __name__ == '__main__':
     server = FTPCommandServer('127.0.0.1')
