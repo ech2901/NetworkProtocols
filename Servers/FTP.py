@@ -6,7 +6,7 @@ from os import path, urandom, mkdir, rmdir, remove, rename, scandir
 from hashlib import pbkdf2_hmac
 from string import digits, whitespace, punctuation
 from platform import platform
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import socket, AF_INET, SOCK_STREAM, timeout
 from datetime import datetime, timedelta
 from threading import Thread
 from itertools import count
@@ -120,6 +120,8 @@ class PassiveConnection(Thread):
 class FTPCommandHandler(BaseRequestHandler, Cmd):
     def setup(self):
         self.server.active = self.server.active + 1
+
+        self.request.settimeout(60*5)
         sock_read = self.request.makefile('r')
 
         Cmd.__init__(self, stdin=sock_read)
@@ -145,71 +147,118 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.rename = ''
 
     def finish(self):
+        # Let server know that this instance if finishing.
         self.server.active = self.server.active - 1
+        # Detach handlers from the logging instance.
+        # Prevents issue where if same IP connects, multiple
+        # Entries will be logged for single command.
         for handler in self.logging.handlers:
             self.logging.removeHandler(handler)
 
     def handle(self):
         try:
+            # FTP initial READY message to client
             self.request.send(b'220 Service ready.\r\n')
+            # Loop through the sequence of getting commands
+            # Until we quit or have an error.
             self.cmdloop()
+        except timeout:
+            # If client doesn't send a command before the timeout
+            # Close connection.
+            self.logging.info('Client timed out. Closing connectino.')
+            self.request.close()
         except (ConnectionAbortedError, ConnectionResetError):
+            # If the connection to client is lost
+            # IE: Network outage
             self.logging.info('closed connection forcefully.')
         except Exception as e:
+            # If an unexpected error happens, log it.
             self.logging.exception(e)
 
     def precmd(self, line):
         if self.server.shutingdown:
             # Check to see if server shutting down
             return 'QUIT'
+
+        # Every command given logged.
         self.logging.info(line)
 
+        # Allow for non-case sensitive commands.
         return line.lower()
 
     def postcmd(self, stop, line):
         if stop:
+            # If client quiting.
+            # Otherwise, will retain username in
+            # Logs between sessions. (Not wanted)
             self.logging.name = '(Not signed in)'
 
         return stop
 
     def check_home(self, dir):
+        # Measure to make sure that command isn't
+        # Trying to break out of the user's file system.
+        # Makes sure that the users root directory is a common
+        # path to the requested location.
+
         return path.commonpath(
                     (
-                            # Safeguard against people trying to break out of their home folder
+                            # Find common path between requested path and
+                            # Home directory
                             path.abspath(self.home),
                             path.abspath(dir)
                     )
                                 ) == path.abspath(self.home)
 
     def exists(self, fileloc):
+        # Measure to check that the given file path actually exists under the home directory.
+
         return path.exists(f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{fileloc}')
 
     def true_fileloc(self, fileloc=''):
+        # Measure to make sure that when reading, writing, listing files, the
+        # Actual location is under the home directory.
         return f'{self.home.rstrip(sep)}{sep}{self.selected.rstrip(sep)}{sep}{fileloc}'
 
     def format_entry(self, entry):
+        # Format os.path.DirEntry instances for LIST command.
+
+        # Get stats of file.
         stats = entry.stat()
 
+        # Identify if file(-) or directory(d)
         type = '-' if entry.is_file() else 'd'
+
+        # Generic reading, writing information. To Be Expanded later.
         access = f'rw-r--r-- 1 {self.username}' if entry.is_file() else f'rwxr-xr-x 1 {self.username}'
+
+        # Size of file / directory.
         size = f'{stats.st_size}'.rjust(13, ' ')
 
         if datetime.now()-timedelta(days=30*6) > datetime.fromtimestamp(stats.st_mtime):
+            # If last modification was more than 6 months ago
+            # Set format to month, day, year format
             modification = datetime.fromtimestamp(stats.st_mtime).strftime('%b %d %Y')
         else:
+            # If last modification was less than 6 months ago
+            # Set format to month, day, hour, minute format
             modification = datetime.fromtimestamp(stats.st_mtime).strftime('%b %d %H:%M')
 
         return f'{type}{access}{size} {modification} {entry.name}'
 
     def default(self, line):
+        # If client tries to give an unexpected command.
         self.logging.info(f'Unrecognized command.')
         self.request.send(b'500 Syntax error, command unrecognized.\r\n')
 
     def do_EOF(self, arg):
+        # If we recieve an EOF from the file descriptor.
         self.logging.info('closed connection forcefully.')
         return True
 
     def do_noop(self, arg):
+        # No OP command.
+        # Does nothing but send an OK response.
         self.request.send(b'200 Command okay.\r\n')
 
     def do_user(self, username):
@@ -228,8 +277,11 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 self.request.send(b'331 User name okay, need password.\r\n')
                 return
             # If a password isn't required to log in, allow to proceed'
+
+            # Set home directory
             self.home = self.server.login(username, '')
             self.logging.info(f'{self.username} logged in.')
+            # Set name for logging to the username.
             self.logging.name = self.username
             self.request.send(b'230 User logged in, proceed.\r\n')
         else:
@@ -246,14 +298,20 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 return
 
             if self.username == '':
+                # Must use USER command before PASS command
                 self.logging.info(f'Failed to log in: Bad sequence of commands.')
                 self.request.send(b'503 Bad sequence of commands.\r\n')
                 return
 
+            # Try to get a directory for a username / password combination.
             directory = self.server.login(self.username, password)
             if directory:
+                # If the directory is a non-empty string
+                # Log in succeeded.
                 self.logging.info(f'{self.username} logged in.')
+                # Set username for logging
                 self.logging.name = self.username
+                # Set home directory
                 self.home = directory
                 self.request.send(b'230 User logged in, proceed.\r\n')
             else:
@@ -262,6 +320,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
                 return True
 
         else:
+            # If a password isn't needed, let client know.
             self.request.send(b'202 Command not implemented, password not required.\r\n')
 
     def do_acct(self, arg):
@@ -269,18 +328,22 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.request.send(b'202 Command not implemented, Server does not support ACCT command.\r\n')
 
     def do_cwd(self, arg):
+        # Change Working Directory.
         if arg == '':
-            # CDUP can not have arguments
+            # CWD must have arguments
             self.request.send(b'501 Syntax error in parameters or arguments.\r\n')
             return
 
         if arg == '..':
-            # Prevent breaking out of local filesystem
+            # Prevent breaking out of local filesystem.
+            # Also allows us to go back one step in history.
             return self.do_cdup('')
 
+        # Identify path as a child of the home directory
         new_dir = self.true_fileloc(arg)
 
         if path.exists(new_dir) and path.isdir(new_dir):
+            # First make sure the path exists and is a directory.
             if self.check_home(new_dir):
                 self.history.append(self.selected)
                 self.selected = f'{arg.strip(sep)}{sep}'
