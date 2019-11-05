@@ -520,14 +520,17 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         file = self.true_fileloc(arg)
         if path.exists(file) and self.check_home(file):
             self.logging.info(f'{file} exists and is ready to be renamed')
-            self.request.send(b'350 file exists and is ready to be renamed.')
+            self.request.send(b'350 file exists and is ready to be renamed.\r\n')
             self.rename = file
 
     def do_rnto(self, arg):
         if self.rename:
             file = self.true_fileloc(arg)
-            if path.exists(file) and self.check_home(file):
+            if self.check_home(file):
                 rename(self.rename, file)
+                self.rename = ''
+                self.logging.info(f'file renamed successfully to {arg}.')
+                self.request.send(b'250 file renamed successfully.\r\n')
 
     def do_abor(self, arg):
         # Used to abort transfer of file(s)
