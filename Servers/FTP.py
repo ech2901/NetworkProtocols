@@ -442,7 +442,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.send('501 Syntax error in parameters or arguments.')
 
         # Create a passive connection object
-        self.connection = PassiveConnection(self.server.ip, binary=self.binary)
+        self.connection = PassiveConnection(self.server.to_ip, binary=self.binary)
 
         self.send(f'227 Entering passive mode ({self.connection.get_str()}).')
 

@@ -23,7 +23,7 @@ def UDPEcho(ip: str, message: bytes):
     Send data to echo server
     Expect sent data to be returned from server
 
-    :param ip: str
+    :param ip: to_str
     :param message: bytes
     :return: bytes
     """

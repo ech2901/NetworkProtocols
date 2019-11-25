@@ -25,7 +25,7 @@ def UDPChargen(ip: str):
     Send data to echo server
     Expect sent data to be returned from server
 
-    :param ip: str
+    :param ip: to_str
     :param message: bytes
     :return: bytes
     """

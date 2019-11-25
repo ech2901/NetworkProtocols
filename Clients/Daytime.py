@@ -6,7 +6,7 @@ def TCPDaytime(ip: str):
     """
     Provided an IP address, retrieve daytime info from a server
 
-    :param ip: str
+    :param ip: to_str
     :return: bytes
     """
     with socket(AF_INET, SOCK_STREAM) as sock:
@@ -20,7 +20,7 @@ def UDPDaytime(ip: str):
     """
     Provided an IP address, retrieve daytime info from a server
 
-    :param ip: str
+    :param ip: to_str
     :return: bytes
     """
     with socket(AF_INET, SOCK_DGRAM) as sock:

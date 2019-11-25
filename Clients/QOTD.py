@@ -6,7 +6,7 @@ def TCPQOTD(ip: str):
     """
     Provided an IP address, retrieve QOTD from a server
 
-    :param ip: str
+    :param ip: to_str
     :return: bytes
     """
     with socket(AF_INET, SOCK_STREAM) as sock:
@@ -20,7 +20,7 @@ def UDPQOTD(ip: str):
     """
     Provided an IP address, retrieve QOTD from a server
 
-    :param ip: str
+    :param ip: to_str
     :return: bytes
     """
     with socket(AF_INET, SOCK_DGRAM) as sock:
