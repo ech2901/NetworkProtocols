@@ -1,24 +1,23 @@
-from uuid import getnode
+from ipaddress import ip_address
 from dataclasses import dataclass
 from enum import Enum
-from os import urandom
-from struct import pack, unpack
 
-from socket import socket, AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST, IPPROTO_IP
-from ipaddress import ip_address
+class Base_Formatter(object):
+    @staticmethod
+    def to_bytes(data):
+        pass
 
-SERVER_IP = '255.255.255.255'  # DHCP Default server to_ip
-SERVER_PORT = 67  # DHCP Default server port
+    @staticmethod
+    def from_bytes(data):
+        pass
+
+    @classmethod
+    def get(cls, raw_data):
+        data = cls.to_bytes(raw_data)
+        return data, len(data)
 
 
-CLIENT_IP = '0.0.0.0'  # DHCP Default client to_ip
-CLIENT_PORT = 68  # DHCP Default client port
-
-RELAY = False
-
-
-
-class IP_Formatter(object):
+class IP_Formatter(Base_Formatter):
     @staticmethod
     def to_bytes(data):
         if type(data) == list:
@@ -38,7 +37,7 @@ class IP_Formatter(object):
         return ip_address(data).compressed
 
 
-class Int_Formatter(object):
+class Int_Formatter(Base_Formatter):
     @staticmethod
     def to_bytes(data):
         size = data.bit_length()//8
@@ -51,7 +50,7 @@ class Int_Formatter(object):
         return int.from_bytes(data, 'big')
 
 
-class List_Formatter(object):
+class List_Formatter(Base_Formatter):
     @staticmethod
     def to_bytes(data):
         return b''.join([val.to_bytes(1, 'big') for val in data])
@@ -61,7 +60,7 @@ class List_Formatter(object):
         return list(data)
 
 
-class Str_Formatter(object):
+class Str_Formatter(Base_Formatter):
     @staticmethod
     def to_bytes(data):
         return data.encode()
@@ -71,8 +70,7 @@ class Str_Formatter(object):
         return data.decode(errors='ignore')
 
 
-
-class Bool_Formatter(object):
+class Bool_Formatter(Base_Formatter):
     @staticmethod
     def to_bytes(data):
         if data:
@@ -84,7 +82,7 @@ class Bool_Formatter(object):
         return bool(int.from_bytes(data, 'big'))
 
 
-class Filter_Formatter(object):
+class Filter_Formatter(Base_Formatter):
     @staticmethod
     def to_bytes(data):
         out = []
@@ -107,7 +105,7 @@ class Option(object):
     code: int
     size: int
     name: str = 'Unknown Code'
-    formatter: object = Int_Formatter
+    formatter: Base_Formatter = Int_Formatter
     data: bytes = b''
 
     def set(self, data):
@@ -233,188 +231,7 @@ class OptionCodes(Enum):
             return option, raw_data[2+size:]
         return option, b''
 
-    def __call__(self, size, data):
+    def __call__(self, raw_data):
         code, name, formatter = self.value
-        return Option(code, size, name, formatter, formatter.to_bytes(data))
-
-
-class Packet(object):
-    def __init__(self, **kwargs):
-        self.data = kwargs
-
-    def setopt(self, key, value):
-        self.data[key] = value
-
-    @classmethod
-    def from_bytes(cls, data):
-        keys = ('op', 'htype', 'hlen', 'hops', 'xid', 'secs', 'flags', 'ciaddr', 'yiaddr', 'siaddr', 'giaddr', 'cookie')
-        values = unpack('! 4B I 2H 4I 6s 10x 64x 128x L', data[:240])
-
-        data_out = dict()
-        for key, value in zip(keys, values):
-            data_out[key] = value
-
-        if len(data) > 240:
-            data_out['options'] = data[240:]
-
-
-        return cls(**data_out)
-
-    def to_bytes(self):
-        return pack(
-                    '! 4B 4s 2H 4I 6s 10x 64x 128x L',
-                    self.data.get('op', 1),
-                    self.data.get('htype', 1),
-                    self.data.get('hlen', 6),
-                    self.data.get('hops', 0),
-                    self.data.get('xid', urandom(4)),
-                    self.data.get('secs', 0),
-                    self.data.get('flags', 1 << 15),
-                    self.data.get('ciaddr', 0),
-                    self.data.get('yiaddr', 0),
-                    self.data.get('siaddr', 0),
-                    self.data.get('giaddr', 0),
-                    self.data.get('chaddr', getnode().to_bytes(6, 'big')),
-                    self.data.get('cookie', 0x63825363),
-                    ) + self.data.get('options', b'')
-
-    @property
-    def mac(self):
-        mac = self.data.get('chaddr', getnode().to_bytes(6, 'big'))
-        out = ':'.join([hex(i)[2:].upper() for i in mac])
-        return out
-
-    @property
-    def client_ip(self):
-        return ip_address(self.data.get('ciaddr', 0)).exploded
-
-    @property
-    def given_ip(self):
-        return ip_address(self.data.get('yiaddr', 0)).exploded
-
-    @property
-    def server_ip(self):
-        return ip_address(self.data.get('siaddr', 0)).exploded
-
-    @property
-    def gateway_ip(self):
-        return ip_address(self.data.get('giaddr', 0)).exploded
-
-    @property
-    def options(self):
-        out = list()
-        data = self.data.get('options', b'')
-
-        while data:
-            option, data = OptionCodes.from_bytes(data)
-            out.append(option)
-
-        return out
-
-    def __len__(self):
-        return len(self.to_bytes())
-
-
-def discover(sock, packet=Packet(), options=b''):
-    packet.setopt('options', options)
-
-    sock.sendto(packet.to_bytes(), (SERVER_IP, SERVER_PORT))
-    offer_data = sock.recvfrom(20448)[0]
-    offer = Packet.from_bytes(offer_data)
-
-    return offer
-
-def request(sock, packet, options=b''):
-    packet.setopt('options', options)
-    sock.sendto(packet.to_bytes(), (SERVER_IP, SERVER_PORT))
-
-    ack_data = sock.recvfrom(2048)[0]
-
-    ack = Packet.from_bytes(ack_data)
-
-    return ack
-
-def dhcp_client(packet=Packet(), *options_list):
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
-    sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
-    sock.bind((CLIENT_IP, CLIENT_PORT))
-
-    options = b''
-    for option in options_list:
-        options = options+option.bytes
-
-    offer = discover(sock, packet, options)
-
-    req_packet = Packet(siaddr=offer.data['siaddr'])
-
-    request_options = (
-        OptionCodes.DHCP_MESSAGE_TYPE(1, 3),
-        OptionCodes.REQUESTED_IP(4, offer.given_ip),
-        OptionCodes.SERVER_ID(4, offer.server_ip)
-    )
-
-    option_data = options
-    for option in request_options:
-        option_data = option_data + option.bytes
-
-    ack = request(sock, req_packet, option_data)
-
-    return offer, ack
-
-
-
-if RELAY:
-    test_ip = ip_address('192.168.0.101')
-
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
-    sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
-
-    test_packet = Packet(hops=1, giaddr=test_ip._ip, chaddr=(0xB827EBC4D973).to_bytes(6, 'big'))
-    sock.bind((test_ip.compressed, CLIENT_PORT))
-    test_packet.setopt('options', (0x350101370401030f06ff).to_bytes(10, 'big'))
-
-    sock.sendto(test_packet.to_bytes(), (SERVER_IP, SERVER_PORT))
-
-    recv_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
-    recv_sock.bind((test_ip.compressed, SERVER_PORT))
-
-    offer_data = recv_sock.recvfrom(2048)[0]
-
-
-    offer = Packet.from_bytes(offer_data)
-
-    request = Packet(siaddr=offer.data['siaddr'])
-
-    request.setopt('hops', 1)
-    request.setopt('giaddr', test_ip._ip)
-    request.setopt('chaddr', (getnode()+10).to_bytes(6, 'big'))
-
-    options = (
-                Option(53, 1, (3).to_bytes(1, 'big')),
-                Option(50, 4, offer.data['yiaddr'].to_bytes(4, 'big')),
-                Option(54, 4, offer.data['siaddr'].to_bytes(4, 'big'))
-                )
-
-    option_data = b''
-    for option in options:
-        option_data = option_data+option.to_bytes()
-
-    request.setopt('options', option_data)
-    sock.sendto(request.to_bytes(), (SERVER_IP, SERVER_PORT))
-
-    ack_data = recv_sock.recvfrom(2048)[0]
-
-    ack = Packet.from_bytes(ack_data)
-
-else:
-
-    option = OptionCodes.PARAMETER_REQ_LIST(8, [2, 4, 5, 7, 8, 9, 12, 15])
-
-    offer, ack = dhcp_client(Packet(), option)
-    pass
-
-
-
-
-
-
+        data, size = formatter.get(raw_data)
+        return Option(code, size, name, formatter, data)
