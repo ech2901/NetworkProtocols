@@ -16,14 +16,18 @@ CLIENT_PORT = 68  # DHCP Default client port
 
 class Packet(object):
     def __init__(self, **kwargs):
-        self.data = kwargs
+        self.data = dict()
+        self.data.update(kwargs)
 
     def setopt(self, key, value):
         self.data[key] = value
 
     @classmethod
     def from_bytes(cls, data):
-        keys = ('op', 'htype', 'hlen', 'hops', 'xid', 'secs', 'flags', 'ciaddr', 'yiaddr', 'siaddr', 'giaddr', 'cookie')
+        keys = (
+            'op', 'htype', 'hlen', 'hops', 'xid', 'secs', 'flags',
+            'ciaddr', 'yiaddr', 'siaddr', 'giaddr', 'chaddr', 'cookie'
+        )
         values = unpack('! 4B I 2H 4I 6s 10x 64x 128x L', data[:240])
 
         data_out = dict()
@@ -38,12 +42,12 @@ class Packet(object):
 
     def to_bytes(self):
         return pack(
-                    '! 4B 4s 2H 4I 6s 10x 64x 128x L',
+                    '! 4B I 2H 4I 6s 10x 64x 128x L',
                     self.data.get('op', 1),
                     self.data.get('htype', 1),
                     self.data.get('hlen', 6),
                     self.data.get('hops', 0),
-                    self.data.get('xid', urandom(4)),
+                    self.data.get('xid', 0),
                     self.data.get('secs', 0),
                     self.data.get('flags', 1 << 15),
                     self.data.get('ciaddr', 0),
@@ -53,6 +57,9 @@ class Packet(object):
                     self.data.get('chaddr', getnode().to_bytes(6, 'big')),
                     self.data.get('cookie', 0x63825363),
                     ) + self.data.get('options', b'')
+    @property
+    def xid(self):
+        return self.data.get('xid', 0)
 
     @property
     def mac(self):
@@ -90,9 +97,15 @@ class Packet(object):
     def __len__(self):
         return len(self.to_bytes())
 
+    def __str__(self):
+        out = str(self.data)[1:-1].replace(', ', '\n')
+        for option in self.options:
+            out = f'{out}\n\n{option}'
 
-def discover(sock, packet=Packet(), options=b''):
-    packet.setopt('options', options)
+        return out
+
+
+def discover(sock, packet=Packet()):
 
     sock.sendto(packet.to_bytes(), (SERVER_IP, SERVER_PORT))
     offer_data = sock.recvfrom(2048)[0]
@@ -101,8 +114,7 @@ def discover(sock, packet=Packet(), options=b''):
     return offer
 
 
-def request(sock, packet, options=b''):
-    packet.setopt('options', options)
+def request(sock, packet):
     sock.sendto(packet.to_bytes(), (SERVER_IP, SERVER_PORT))
 
     ack_data = sock.recvfrom(2048)[0]
@@ -139,3 +151,28 @@ def dhcp_client(packet=Packet(), *options_list):
 
     return packet, offer, req_packet, ack
 
+data = list()
+sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
+sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
+sock.bind((CLIENT_IP, CLIENT_PORT))
+
+
+packet1 = Packet(options=b'5\x01\x01=\x07\x01X\xcbR\x0e\x86\xcf9\x02\x05\xdc<\x0fandroid-dhcp-107\n\x01\x03\x06\x0f\x1a\x1c3:;+\xff')
+data.append(packet1)
+
+offer = discover(sock, packet1)
+data.append(offer)
+
+packet2 = Packet(options=b'5\x01\x03=\x07\x01X\xcbR\x0e\x86\xcf2\x04\xc0\xa8\x00\x9f6\x04\xc0\xa8\x00\x019\x02\x05\xdc<\x0fandroid-dhcp-107\n\x01\x03\x06\x0f\x1a\x1c3:;+\xff')
+data.append(packet2)
+
+ack = request(sock, packet2)
+data.append(ack)
+
+
+
+
+
+
+for p in data:
+    print(f'{"".rjust(20, "-")}\n{p}\n{"".rjust(20, "-")}\n')

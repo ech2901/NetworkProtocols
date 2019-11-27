@@ -239,3 +239,7 @@ class OptionCodes(Enum):
         code, name, formatter = self.value
         data, size = formatter.get(raw_data)
         return Option(code, size, name, formatter, data)
+
+
+if __name__ == '__main__':
+    print('Finished.')
