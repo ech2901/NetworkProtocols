@@ -151,28 +151,32 @@ def dhcp_client(packet=Packet(), *options_list):
 
     return packet, offer, req_packet, ack
 
-data = list()
-sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
-sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
-sock.bind((CLIENT_IP, CLIENT_PORT))
+
+if __name__ == '__main__':
 
 
-packet1 = Packet(options=b'5\x01\x01=\x07\x01X\xcbR\x0e\x86\xcf9\x02\x05\xdc<\x0fandroid-dhcp-107\n\x01\x03\x06\x0f\x1a\x1c3:;+\xff')
-data.append(packet1)
-
-offer = discover(sock, packet1)
-data.append(offer)
-
-packet2 = Packet(options=b'5\x01\x03=\x07\x01X\xcbR\x0e\x86\xcf2\x04\xc0\xa8\x00\x9f6\x04\xc0\xa8\x00\x019\x02\x05\xdc<\x0fandroid-dhcp-107\n\x01\x03\x06\x0f\x1a\x1c3:;+\xff')
-data.append(packet2)
-
-ack = request(sock, packet2)
-data.append(ack)
+    data = list()
+    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
+    sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
+    sock.bind((CLIENT_IP, CLIENT_PORT))
 
 
+    packet1 = Packet(flags=0, options=b'5\x01\x01=\x07\x01X\xcbR\x0e\x86\xcf9\x02\x05\xdc<\x0fandroid-dhcp-107\n\x01\x03\x06\x0f\x1a\x1c3:;+\xff')
+    data.append(packet1)
+
+    offer = discover(sock, packet1)
+    data.append(offer)
+
+    packet2 = Packet(flags=0, options=b'5\x01\x03=\x07\x01X\xcbR\x0e\x86\xcf2\x04\xc0\xa8\x00\x9f6\x04\xc0\xa8\x00\x019\x02\x05\xdc<\x0fandroid-dhcp-107\n\x01\x03\x06\x0f\x1a\x1c3:;+\xff')
+    data.append(packet2)
+
+    ack = request(sock, packet2)
+    data.append(ack)
 
 
 
 
-for p in data:
-    print(f'{"".rjust(20, "-")}\n{p}\n{"".rjust(20, "-")}\n')
+
+
+    for p in data:
+        print(f'{"".rjust(20, "-")}\n{p}\n{"".rjust(20, "-")}\n')

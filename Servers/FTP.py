@@ -442,7 +442,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             self.send('501 Syntax error in parameters or arguments.')
 
         # Create a passive connection object
-        self.connection = PassiveConnection(self.server.to_ip, binary=self.binary)
+        self.connection = PassiveConnection(self.server.ip, binary=self.binary)
 
         self.send(f'227 Entering passive mode ({self.connection.get_str()}).')
 
@@ -900,7 +900,7 @@ def sort_dir_entry(entry):
     return f'0{entry.name}'
 
 if __name__ == '__main__':
-    server = FTPCommandServer('127.0.0.1')
+    server = FTPCommandServer('127.0.0.1', root_dir=r'A:\Programing\Python\Projects\NetworkProtocols\FTP_DATA')
     server.add_user('tester', 'test')
     server.start()
 

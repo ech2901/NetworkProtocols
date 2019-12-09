@@ -186,7 +186,7 @@ class OptionCodes(Enum):
     MAX_DHCP_MESSAGE_SIZE = (57, 'Max DHCP Message Size', Int_Formatter)
     RENEWAL_T1_VAL = (58, 'Renewal (T1) Time Valuue', Int_Formatter)
     RENEWAL_T2_VAL = (59, 'Renewal (T2)) Time Value', Int_Formatter)
-    VENDOR_ID = (60, 'Vendor Class ID', List_Formatter)
+    VENDOR_ID = (60, 'Vendor Class ID', Str_Formatter)
     CLIENT_ID = (61, 'Client ID', List_Formatter)
     NETWORK_INFO_PLUS_DOMAIN = (64, 'Network Information Service+ Domain', Str_Formatter)
     NETOWRK_INFO_PLUS_SERVERS = (65, 'Network Information Service+ Server(s)', IP_Formatter)
@@ -239,7 +239,3 @@ class OptionCodes(Enum):
         code, name, formatter = self.value
         data, size = formatter.get(raw_data)
         return Option(code, size, name, formatter, data)
-
-
-if __name__ == '__main__':
-    print('Finished.')

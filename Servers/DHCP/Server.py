@@ -5,11 +5,9 @@ from struct import pack, unpack
 from socket import socket, AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST, IPPROTO_IP, SO_REUSEADDR
 from ipaddress import ip_address, ip_network
 
-print('test1')
 from Servers.DHCP.Options import OptionCodes
-print('test2')
 from Servers import UDPServer
-print('test3')
+
 
 
 class Packet(object):
@@ -54,6 +52,9 @@ class Packet(object):
                     self.data.get('chaddr', getnode().to_bytes(6, 'big')),
                     self.data.get('cookie', 0x63825363),
                     ) + self.data.get('options', b'')
+
+    def copy(self):
+        return self.__class__.from_bytes(self.to_bytes())
 
     @property
     def xid(self):
@@ -106,12 +107,10 @@ class Packet(object):
 class DHCPCommandHandler(BaseRequestHandler):
     def setup(self):
         self.packet = Packet.from_bytes(self.request[0])
-        self.sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)
-        self.sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
+
 
     def handle(self):
-        print(f'Mac Address: {self.packet.mac}')
-        print(f'Options: {self.packet.options}')
+        print(str(self.packet))
 
         if OptionCodes.DHCP_MESSAGE_TYPE(1) in self.packet.options:
 
@@ -132,6 +131,11 @@ class DHCPCommandHandler(BaseRequestHandler):
             for option in options_list:
                 options = options + option.bytes
 
+            while len(options) < 60:
+                options = options+OptionCodes.PAD().bytes
+
+            options = b'5\x01\x02\x01\x04\xff\xff\xff\x006\x04\xc0\xa8\x00\xc8\x03\x04\xc0\xa8\x00\x01\x06\x04\x08\x08\x08\x08\x0f\x0cHome Network\x1a\x02\x05\xdc\x1c\x04\xc0\xa8\x00\xff3\x03\x01Q\x80\xff\x00\x00\x00'
+
             address = ip_address('192.168.0.250')
 
             self.packet.setopt('op', 2)
@@ -139,9 +143,10 @@ class DHCPCommandHandler(BaseRequestHandler):
             self.packet.setopt('siaddr', self.server.address._ip)
             self.packet.setopt('options', options)
 
-            resp = Packet(op=2, xid=self.packet.xid, yiaddr=address._ip, siaddr=self.server.address._ip,
-                          options=options)
-            # resp = self.packet
+            #resp = Packet(op=2, flags=0, secs=self.packet.data['secs'], xid=self.packet.xid,
+            #              yiaddr=address._ip, siaddr=self.server.address._ip, options=options,
+            #              chaddr=self.packet.data['chaddr'])
+            resp = self.packet
 
             self.server.offers[(self.packet.xid, self.packet.mac)] = address
 
@@ -165,26 +170,31 @@ class DHCPCommandHandler(BaseRequestHandler):
             for option in options_list:
                 options = options + option.bytes
 
+            options = b'5\x01\x04\x01\x04\xff\xff\xff\x006\x04\xc0\xa8\x00\xc8\x03\x04\xc0\xa8\x00\x01\x06\x04\x08\x08\x08\x08\x0f\x0cHome Network\x1a\x02\x05\xdc\x1c\x04\xc0\xa8\x00\xff3\x03\x01Q\x80\xff\x00'
+
+
             address = ip_address('192.168.0.250')
-            resp = Packet(op=4, yiaddr=address._ip, siaddr=self.server.address._ip, options=options)
+            resp = Packet(op=4, flags=0, secs=self.packet.data['secs'], xid=self.packet.xid,
+                          yiaddr=address._ip, siaddr=self.server.address._ip, options=options,
+                          chaddr=self.packet.data['chaddr'])
 
         else:
             resp = Packet()
 
-        self.client_address = ('255.255.255.255', self.client_address[1])
 
-        print(self.client_address)
-        self.server.socket.sendto(resp.to_bytes(), self.client_address)
+        print(resp)
 
 
-    def finish(self):
-        self.sock.close()
+        self.server.socket.sendto(resp.to_bytes(), ('255.255.255.255', 68))
+
+
 
 
 
 class DHCPCommandServer(UDPServer):
     def __init__(self, server_ip, ip_addr='192.168.0.0', mask=24):
         UDPServer.__init__(self, '', 67, DHCPCommandHandler)
+        self.socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self.socket.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
 
         self.network = ip_network((ip_addr, mask))
@@ -199,9 +209,9 @@ class DHCPCommandServer(UDPServer):
 
 if __name__ == '__main__':
     print('Server ready.')
-    #server = DHCPCommandServer('192.168.0.200', '192.168.0.0')
+    server = DHCPCommandServer('192.168.0.200', '192.168.0.0')
     print('Server started.')
-    #server.start()
+    server.start()
     input('Press enter to stop.\n')
-    #server.shutdown()
+    server.shutdown()
     print('Server stopped.')
