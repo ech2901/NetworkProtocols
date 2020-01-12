@@ -5,6 +5,15 @@ from struct import pack, unpack
 
 
 def build_ethernet(destination: bytes, source: bytes, payload: bytes, **kwargs):
+    """
+    Build  raw ethernet frames for sending.
+    :param destination: bytes: MAC address sending to.
+    :param source: bytes: MAC address sending from
+    :param payload: bytes
+    :keyword type: int: Packet Type (optional)
+    :keyword tag: int: 802.11 tag (optional)
+    :return: bytes
+    """
     if 'tag' in kwargs:
         header = pack('! 6s 6s L H', destination, source, kwargs.get('tag'), kwargs.get('type', 0x0800))
     else:
@@ -14,6 +23,13 @@ def build_ethernet(destination: bytes, source: bytes, payload: bytes, **kwargs):
 
 
 def disassemble_ethernet(packet):
+    """
+    Disassemble a ethernet packet for inspection.
+    Can be used to build a packet later.
+
+    :param packet: bytes: Ethernet packet to disassemble
+    :return: dict
+    """
     out = dict()
 
     ethe_tag_test = int.from_bytes(packet[12:14], 'big')
@@ -32,9 +48,23 @@ def disassemble_ethernet(packet):
     return out
 
 
-
 def build_ipv4(source: bytes, destination: bytes, payload: bytes, **kwargs):
-    version = kwargs.get('versin', 4)  # 4 bit field; should omit as this identifies packet as ipv4
+    """
+    Build header for IPv4 packet.
+    :param source: bytes: Source IP address
+    :param destination: bytes: Destinatin IP address
+    :param payload: bytes
+    :keyword version: int: 4 bit field specifying version. (optional: default is 4)
+    :keyword ihl: int: 4 bit field specifying header size. (optional unless adding IP Options: default is 5)
+    :keyword id: int: 4 byte field specifying packet ID. (optional: default is random)
+    :keyword flags: int: flags for IP header. (optional: default is 000)
+    :keyword offset: int: Packet offset for fragmented packets. (optional: default is 0)
+    :keyword ttl: int: Time to live for packet. (optional: default is 255)
+    :keyword protocol: int: Protocol used (tcp-6, udp-17, etc). (optional: default is 6)
+
+    :return: bytes
+    """
+    version = kwargs.get('version', 4)  # 4 bit field; should omit as this identifies packet as ipv4
     ihl = kwargs.get('ihl', 5)  # 4 bit field; size in bytes
     dscp = kwargs.get('dscp', 0)  # 6 bit field
     ecn = kwargs.get('ecn', 0)    # 2 bit field
@@ -59,6 +89,13 @@ def build_ipv4(source: bytes, destination: bytes, payload: bytes, **kwargs):
 
 
 def disassemble_ipv4(packet: bytes):
+    """
+    Disassemble a IPv4 packet for inspection.
+    Can be used to build a packet later.
+
+    :param packet: bytes: IPv4 packet to disassemble
+    :return: dict
+    """
     out = dict()
 
     ihl_ver = packet[0]
@@ -87,6 +124,13 @@ def disassemble_ipv4(packet: bytes):
 
 
 def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
+    """
+    Build header for TCP packet
+    :param source: int: Source port number
+    :param destination: int: Destination port number
+    :param payload: bytes
+    :return: bytes
+    """
     seq = kwargs.get('seq', 0)
     ack_seq = kwargs.get('ack_seq', 0)
     data_offset = kwargs.get('offset', 5)
@@ -118,6 +162,13 @@ def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
 
 
 def disassemble_tcp(packet: bytes):
+    """
+    Disassemble a TCP packet for inspection.
+    Can be used to build a packet later.
+
+    :param packet: bytes: TCP packet to disassemble
+    :return: dict
+    """
     out = dict()
 
     keys = ('source', 'destinatin', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
@@ -139,12 +190,28 @@ def disassemble_tcp(packet: bytes):
 
     return out
 
+
 def build_udp(source: int, destination: int, payload: bytes, **kwargs):
+    """
+    Build header for UDP packet
+    :param source: int: Source port number
+    :param destination: int: Destination port number
+    :param payload: bytes
+    :return:
+    """
     header = pack('! 4H', source, destination, kwargs.get('length', 0), kwargs.get('checksum', 0))
 
     return header + payload
 
-def disassemble_udp(packet):
+
+def disassemble_udp(packet: bytes):
+    """
+    Disassemble a UDP packet for inspection.
+    Can be used to build a packet later.
+
+    :param packet: bytes: UDP packet to disassemble
+    :return: dict
+    """
     out = dict()
 
     keys = ('source', 'destination', 'length', 'checksum')
