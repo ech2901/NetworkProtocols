@@ -1,18 +1,34 @@
-from socket import socket, AF_PACKET, SOCK_RAW, htons, IPPROTO_TCP
 from os import urandom
 from struct import pack, unpack
 
-def raw_socket(interface: str = 'eth0'):
-    sock = socket(AF_PACKET, SOCK_RAW, htons(3))
-    sock.bind((interface, 0))
+    
 
-def send_raw(destination: bytes, source: bytes, type: bytes, payload: bytes, interface: str = 'eth0'):
-    assert(len(destination) == len(source) == 6)  # Source/Destination must be 6 bytes
-    assert(len(type) == 2)  # Ethernet type must be 2 bytes
+def build_ethernet(destination: bytes, source: bytes, payload: bytes, **kwargs):
+    if 'tag' in kwargs:
+        header = pack('! 6s 6s L H', destination, source, kwargs.get('tag'), kwargs.get('type', 0x0800))
+    else:
+        header = pack('! 6s 6s H', destination, source, kwargs.get('type', 0x0800))
+
+    return header + payload
 
 
-    sock = raw_socket(interface)
-    sock.send(destination + source + type + payload)
+def disassemble_ethernet(packet):
+    out = dict()
+
+    ethe_tag_test = int.from_bytes(packet[12:14], 'big')
+    if (ethe_tag_test == 0x8100 or ethe_tag_test == 0x88a8):
+        keys = ('destination', 'source', 'tag', 'type')
+        values = unpack('! 6s 6s L H', packet[:18])
+        out['payload'] = packet[18:]
+    else:
+        keys = ('destination', 'source', 'type')
+        values = unpack('! 6s 6s H', packet[:14])
+        out['payload'] = packet[14:]
+
+    for key, value in zip(keys, values):
+        out[key] = value
+
+    return out
 
 
 
@@ -28,7 +44,6 @@ def build_ipv4(source: bytes, destination: bytes, payload: bytes, **kwargs):
     ttl = kwargs.get('ttl', 255)  # 8 bit field
     protocol = kwargs.get('protocol', IPPROTO_TCP)  # 8 bit field
     checksum = kwargs.get('cheksum', 0)  # 32 bit field; should omit as kernel will compute
-    options = kwargs.get('options', b'')
 
     ihl_ver = (version << 4) | ihl
     dscp_ecn = (dscp << 2) | ecn
@@ -39,19 +54,17 @@ def build_ipv4(source: bytes, destination: bytes, payload: bytes, **kwargs):
                   flag_offset, ttl, protocol,
                   checksum, source, destination)
 
-    return header + options + payload
+    return header + kwargs.get('options', b'') + payload
 
-def disassemble_ipv4(packet):
+
+def disassemble_ipv4(packet: bytes):
     out = dict()
 
     ihl_ver = packet[0]
     out['version'] = ihl_ver >> 4  # IP Version. Should always be 4 for this disassembly
     out['ihl'] = ihl_ver & 0xff  # length of header in 4 byte words
 
-    if(out['ihl'] > 5):
-        out['options'] = packet[20:out['ihl']*4]  # If header has options capture them
-    else:
-        out['options'] = b''
+    out['options'] = packet[20:out['ihl']*4]  # If header has options capture them
 
     out['payload'] = packet[out['ihl']*4:]  # Get the payload of the IP packet
 
@@ -72,12 +85,9 @@ def disassemble_ipv4(packet):
     return out
 
 
-
-
-
 def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
     seq = kwargs.get('seq', 0)
-    ack_seq = kwargs.get('ack', 0)
+    ack_seq = kwargs.get('ack_seq', 0)
     data_offset = kwargs.get('offset', 5)
 
     # TCP Flags
@@ -92,8 +102,8 @@ def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
     fin = kwargs.get('fin', False)
 
     window = htons(kwargs.get('window', 5840))
-    checksum = 0
-    urg_pointer = 0
+    checksum = kwargs.get('checksum', 0)
+    urg_pointer = kwargs.get('urg_pointer', 0)
 
     offset_ns = (data_offset << 4) | ns
 
@@ -103,4 +113,27 @@ def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
 
     header = pack('! 2H 2L 2B 3H', source, destination, seq, ack_seq, offset_ns, flags, window, checksum, urg_pointer)
 
-    return header + payload
+    return header + kwargs.get('options', b'') + payload
+
+
+def disassemble_tcp(packet: bytes):
+    out = dict()
+
+    keys = ('source', 'destinatin', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
+    values = unpack('! 2H 2L 2B 3H', packet[:20])
+
+    for key, value in zip(keys, values):
+        if(key == 'offset_ns'):
+            out['offset'] = value >> 4
+            out['ns'] = bool(value & 0x01)
+        elif(key == 'flags'):
+            for flag in ('fin', 'syn', 'rst', 'psh', 'ack', 'urg', 'ece', 'cwr'):
+                out[flag] = bool(value & 0x01)
+                value = value >> 1
+        else:
+            out[key] = value
+
+    out['options'] = packet[20:out['offset']*4]
+    out['payload'] = packet[out['offset']*4:]
+
+    return out
