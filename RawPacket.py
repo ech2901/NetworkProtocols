@@ -1,7 +1,8 @@
+from socket import htons, IPPROTO_TCP
 from os import urandom
 from struct import pack, unpack
 
-    
+
 
 def build_ethernet(destination: bytes, source: bytes, payload: bytes, **kwargs):
     if 'tag' in kwargs:
@@ -16,7 +17,7 @@ def disassemble_ethernet(packet):
     out = dict()
 
     ethe_tag_test = int.from_bytes(packet[12:14], 'big')
-    if (ethe_tag_test == 0x8100 or ethe_tag_test == 0x88a8):
+    if(ethe_tag_test == 0x8100 or ethe_tag_test == 0x88a8):
         keys = ('destination', 'source', 'tag', 'type')
         values = unpack('! 6s 6s L H', packet[:18])
         out['payload'] = packet[18:]
@@ -62,7 +63,7 @@ def disassemble_ipv4(packet: bytes):
 
     ihl_ver = packet[0]
     out['version'] = ihl_ver >> 4  # IP Version. Should always be 4 for this disassembly
-    out['ihl'] = ihl_ver & 0xff  # length of header in 4 byte words
+    out['ihl'] = ihl_ver & 0x0f  # length of header in 4 byte words
 
     out['options'] = packet[20:out['ihl']*4]  # If header has options capture them
 
@@ -135,5 +136,23 @@ def disassemble_tcp(packet: bytes):
 
     out['options'] = packet[20:out['offset']*4]
     out['payload'] = packet[out['offset']*4:]
+
+    return out
+
+def build_udp(source: int, destination: int, payload: bytes, **kwargs):
+    header = pack('! 4H', source, destination, kwargs.get('length', 0), kwargs.get('checksum', 0))
+
+    return header + payload
+
+def disassemble_udp(packet):
+    out = dict()
+
+    keys = ('source', 'destination', 'length', 'checksum')
+    values = unpack('! 4H', packet[:8])
+
+    for key, value in zip(keys, values):
+        out[key] = value
+
+    out['payload'] = packet[8:]
 
     return out
