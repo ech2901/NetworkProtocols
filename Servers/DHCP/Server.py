@@ -14,6 +14,7 @@ class DHCPHandler(BaseRequestHandler):
                 self.udp = disassemble_udp(self.ip['payload'])
                 if(self.udp['destination'] == self.server.server_port):
                     return
+        print('None DHCP packet recieved')
         raise ValueError('Packet not a DHCP packet')
 
     def handle(self):
