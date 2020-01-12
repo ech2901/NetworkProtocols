@@ -20,7 +20,7 @@ class TCPChargenHandler(BaseRequestHandler):
 
         while True:
             try:
-                data = self.server.data[offset % self.server.size:(offset + self.server.width) % self.server.size].encode()
+                data = self.server.data[offset % self.server.get_size:(offset + self.server.width) % self.server.get_size].encode()
                 offset = offset + 1
 
                 # If logging level set to info print it to output
