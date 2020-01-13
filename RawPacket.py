@@ -4,7 +4,27 @@ from struct import pack, unpack
 from ipaddress import ip_address
 
 
-def build_ethernet(destination: bytes, source: bytes, payload: bytes, **kwargs):
+class BasePacket(object):
+    def __init__(self, format):
+        self.format = format
+        self.data = dict()
+
+    def build(self):
+        pass
+
+    @classmethod
+    def disassemble(cls, packet: bytes):
+        pass
+
+    def calc_checksum(self, *, data=b''):
+        pass
+
+    def set(self, **kwargs):
+        self.data.update(kwargs)
+
+
+
+def build_ethernet(destination: bytes, source: bytes, payload, **kwargs):
     """
     Build  raw ethernet frames for sending.
     :param destination: bytes: MAC address sending to.
@@ -68,7 +88,7 @@ def build_ipv4(source: str, destination: str, payload: bytes, **kwargs):
     ihl = kwargs.get('ihl', 5)  # 4 bit field; size in bytes
     dscp = kwargs.get('dscp', 0)  # 6 bit field
     ecn = kwargs.get('ecn', 0)    # 2 bit field
-    length = kwargs.get('length', 0)  # 32 bit field; should omit as kernel will compute
+    length = kwargs.get('length', (ihl*4) + len(payload))  # 32 bit field; should omit as kernel will compute
     id = kwargs.get('id', int.from_bytes(urandom(2), 'big'))  # 32 bit field
     flags = kwargs.get('flags', 0)  # 3 bit field
     offset = kwargs.get('offset', 0)  # 29 bit field
@@ -193,35 +213,69 @@ def disassemble_tcp(packet: bytes):
     return out
 
 
-def build_udp(source: int, destination: int, payload: bytes, **kwargs):
-    """
-    Build header for UDP packet
-    :param source: int: Source port number
-    :param destination: int: Destination port number
-    :param payload: bytes
-    :return:
-    """
-    header = pack('! 4H', source, destination, kwargs.get('length', 0), kwargs.get('checksum', 0))
+class UDP(BasePacket):
+    def __init__(self, source: int, destination: int, payload: bytes, **kwargs):
+        BasePacket.__init__(self, '! 4H')
+        self.data['source'] = source
+        self.data['destination'] = destination
+        self.data['length'] = kwargs.get('length', 8 + len(payload))
+        self.data['checksum'] = kwargs.get('checksum', 0)
+        self.data['payload'] = payload
 
-    return header + payload
+    def build(self):
+        header = pack(self.format, self.data['source'], self.data['destination'],
+                      self.data['length'], self.data['checksum'])
+
+        return header + self.data['payload']
+
+    @classmethod
+    def disassemble(cls, packet: bytes):
+        """
+        Disassemble a UDP packet for inspection.
+
+        :param packet: bytes: UDP packet to disassemble
+        :return: dict
+        """
+
+        out = dict()
+
+        keys = ('source', 'destination', 'length', 'checksum')
+        values = unpack('! 4H', packet[:8])
+
+        for key, value in zip(keys, values):
+            out[key] = value
+
+        out['payload'] = packet[8:]
+
+        return cls(**out)
+
+    def calc_checksum(self, *, data=b''):
+        # source, destination, and length are already 2 bytes each
+        sum_total = self.data['source'] + self.data['destination'] + self.data['length']
+
+        # Bytes of data we need to calculate for
+        calc_bytes = data + self.data['payload']
+
+        if(len(calc_bytes) % 2 != 0):
+            # Make sure there is an even number of bytes
+            calc_bytes = calc_bytes + b'\x00'
+
+        # unpack all the bytes into 2 byte integers
+        values = unpack(f'! {len(calc_bytes) // 2}H', calc_bytes)
+        sum_total = sum_total + sum(values)
+
+        while(sum_total > 0xffff):
+            # If sum is bigger than 2 bytes, add the overflow to the sum
+            sum_total = sum_total + (sum_total >> 16)
+
+        # Calculate the compliment of the sum to get the checksum.
+        compliment = -sum_total % 0xffff
+
+        if compliment:
+            self.data['checksum'] = compliment
+            return
+        # If the checksum is calculated to be zero, set to 0xFFFF
+        self.data['checksum'] = 0xffff
 
 
-def disassemble_udp(packet: bytes):
-    """
-    Disassemble a UDP packet for inspection.
-    Can be used to build a packet later.
 
-    :param packet: bytes: UDP packet to disassemble
-    :return: dict
-    """
-    out = dict()
-
-    keys = ('source', 'destination', 'length', 'checksum')
-    values = unpack('! 4H', packet[:8])
-
-    for key, value in zip(keys, values):
-        out[key] = value
-
-    out['payload'] = packet[8:]
-
-    return out
