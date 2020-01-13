@@ -1,7 +1,7 @@
 from socket import htons, IPPROTO_TCP
 from os import urandom
 from struct import pack, unpack
-
+from ipaddress import ip_address
 
 
 def build_ethernet(destination: bytes, source: bytes, payload: bytes, **kwargs):
@@ -48,7 +48,7 @@ def disassemble_ethernet(packet):
     return out
 
 
-def build_ipv4(source: bytes, destination: bytes, payload: bytes, **kwargs):
+def build_ipv4(source: str, destination: str, payload: bytes, **kwargs):
     """
     Build header for IPv4 packet.
     :param source: bytes: Source IP address
@@ -83,7 +83,7 @@ def build_ipv4(source: bytes, destination: bytes, payload: bytes, **kwargs):
     header = pack('! 2B 3H 2B H 4s 4s',
                   ihl_ver, dscp_ecn, length, id,
                   flag_offset, ttl, protocol,
-                  checksum, source, destination)
+                  checksum, ip_address(source).packed, ip_address(destination).packed)
 
     return header + kwargs.get('options', b'') + payload
 
@@ -117,6 +117,8 @@ def disassemble_ipv4(packet: bytes):
         elif(key == 'flags_offset'):
             out['flags'] = value >> 13
             out['offset'] = value & (0xffff >> 3)
+        elif(key in ('source', 'destination')):
+            out[key] = ip_address(value)
         else:
             out[key] = value
 

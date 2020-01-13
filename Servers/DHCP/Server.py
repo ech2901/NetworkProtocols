@@ -5,6 +5,7 @@ from socket import IPPROTO_UDP
 
 from Servers import RawServer
 from RawPacket import disassemble_ethernet, disassemble_ipv4, disassemble_udp
+from RawPacket import build_ethernet, build_ipv4, build_udp
 from Servers.DHCP import Options
 
 
@@ -24,8 +25,6 @@ class DHCPHandler(BaseRequestHandler):
 
         self.is_dhcp = False
 
-
-
     def handle(self):
         if(self.is_dhcp):
             keys = ('op', 'htype', 'hlen', 'hops', 'xid', 'secs', 'flags', 'ciaddr',
@@ -35,6 +34,11 @@ class DHCPHandler(BaseRequestHandler):
             self.dhcp_packet = dict()
             for key, value in zip(keys, values):
                 self.dhcp_packet[key] = value
+
+
+            if(self.dhcp_packet['op'] == 2):
+                # Only handle DHCP request packets, not reply messages
+                return
 
             checkup = 44
             while(True):
@@ -51,6 +55,11 @@ class DHCPHandler(BaseRequestHandler):
                     self.dhcp_packet['file'] = unpack('! 128s', self.udp['payload'][108:236])
                     checkup = 236
 
+    def handle_discover(self):
+        pass
+
+    def handle_request(self):
+        pass
 
 
 
