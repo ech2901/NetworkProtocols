@@ -1,7 +1,12 @@
 from socketserver import BaseRequestHandler
+from ipaddress import ip_network
+from struct import pack, unpack
+from socket import IPPROTO_UDP
 
 from Servers import RawServer
 from RawPacket import disassemble_ethernet, disassemble_ipv4, disassemble_udp
+from Servers.DHCP import Options
+
 
 
 class DHCPHandler(BaseRequestHandler):
@@ -11,7 +16,7 @@ class DHCPHandler(BaseRequestHandler):
         self.ethernet = disassemble_ethernet(packet)
         if(self.ethernet['type'] == 0x0800):
             self.ip = disassemble_ipv4(self.ethernet['payload'])
-            if(self.ip['protocol'] == 17):
+            if(self.ip['protocol'] == IPPROTO_UDP):
                 self.udp = disassemble_udp(self.ip['payload'])
                 if(self.udp['destination'] == self.server.server_port):
                     self.is_dhcp = True
@@ -23,9 +28,34 @@ class DHCPHandler(BaseRequestHandler):
 
     def handle(self):
         if(self.is_dhcp):
-            print('DHCP packet recieved.')
-        else:
-            print('Non-DHCP packet recieved.')
+            keys = ('op', 'htype', 'hlen', 'hops', 'xid', 'secs', 'flags', 'ciaddr',
+                    'yiaddr', 'siaddr', 'giaddr', 'chaddr')
+            values = unpack('! 4B L 2H 4L 6s 10x', self.udp['payload'][:44])
+
+            self.dhcp_packet = dict()
+            for key, value in zip(keys, values):
+                self.dhcp_packet[key] = value
+
+            checkup = 44
+            while(True):
+                if(self.udp['payload'][checkup:checkup+4] == b'\x63\x82\x53\x63'):
+                    # check for magic cookie to notify start of options.
+                    self.dhcp_packet['options'] = Options.unpack_options(self.udp['payload'][checkup+4:])
+                    break
+                elif(checkup == 44):
+                    # If sname isn't being used for option overload
+                    self.dhcp_packet['sname'] = unpack('! 64s', self.udp['payload'][44:108])
+                    checkup = 108
+                elif(checkup == 108):
+                    # If file isn't being used for option overload
+                    self.dhcp_packet['file'] = unpack('! 128s', self.udp['payload'][108:236])
+                    checkup = 236
+
+
+
+
+
+
 
 
 
@@ -40,8 +70,12 @@ class DHCPServer(RawServer):
     server_port = 67
     client_port = 68
 
-    def __init__(self, interface):
+    def __init__(self, interface: str = 'eth0', **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
+
+        self.pool = ip_network((kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0')))
+        self.hosts = self.pool.hosts()  # used to better track used addresses to prevent race conditions.
+
 
     def verify_request(self, request, client_address):
         """
@@ -49,10 +83,26 @@ class DHCPServer(RawServer):
         Return True if we should proceed with this request.
         """
 
-        is_broadcast = request[:6] == b'\xff'*6
-        is_to_interface = request[:6] == self.server_address[-1]
+        is_broadcast = request[0][:6] == b'\xff'*6
+        is_to_interface = request[0][:6] == self.server_address[-1]
 
         return (is_broadcast or is_to_interface)
+
+
+    @property
+    def broadcast(self):
+        return self.pool.broadcast_address
+
+    @property
+    def network(self):
+        return self.pool.network_address
+
+    def get_host_addr(self):
+        if(len(self.hosts)):
+            return self.hosts.pop(0)
+        return None  # If the number of available addresses gets exhausted return None
+
+
 
 
 
