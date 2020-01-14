@@ -74,6 +74,9 @@ class Ethernet(BasePacket):
 
         return cls(**out)
 
+    def calc_checksum(self, *, data=b''):
+        self.data['payload'].calc_checksum()
+
     def __len__(self):
         return len(self.build())
 
@@ -162,7 +165,7 @@ class IPv4(BasePacket):
 
         while(sum_total > 0xffff):
             # If sum is bigger than 2 bytes, add the overflow to the sum
-            sum_total = sum_total + (sum_total >> 16)
+            sum_total = (sum_total & 0xffff) + (sum_total >> 16)
 
         # Calculate the compliment of the sum to get the checksum.
         compliment = -sum_total % 0xffff
@@ -303,7 +306,7 @@ class UDP(BasePacket):
 
         while(sum_total > 0xffff):
             # If sum is bigger than 2 bytes, add the overflow to the sum
-            sum_total = sum_total + (sum_total >> 16)
+            sum_total = (sum_total & 0xffff) + (sum_total >> 16)
 
         # Calculate the compliment of the sum to get the checksum.
         compliment = -sum_total % 0xffff
