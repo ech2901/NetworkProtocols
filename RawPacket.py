@@ -31,9 +31,9 @@ class Ethernet(BasePacket):
 
     format = '! 6s 6s H'
 
-    def __init__(self, destination: str, source: str, payload: BasePacket, **kwargs):
+    def __init__(self, destination: bytes, source: bytes, payload: BasePacket, **kwargs):
         BasePacket.__init__(self)
-        self.data['destinatin'] = destination
+        self.data['destination'] = destination
         self.data['source'] = source
         self.data['tag'] = kwargs.get('tag', None)
         self.data['type'] = kwargs.get('type', 0x0800)
