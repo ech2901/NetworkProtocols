@@ -1,5 +1,4 @@
 from socket import htons, IPPROTO_TCP
-from os import urandom
 from struct import pack, unpack
 from ipaddress import ip_address
 
@@ -15,61 +14,68 @@ class BasePacket(object):
         pass
 
     @classmethod
-    def disassemble(cls, packet: bytes):
+    def disassemble(cls, packet: bytes, packet_type = None):
         pass
 
     def calc_checksum(self, *, data=b''):
         pass
 
-    def set(self, **kwargs):
+    def update(self, **kwargs):
         self.data.update(kwargs)
 
     def __len__(self):
         pass
 
 
-def build_ethernet(destination: bytes, source: bytes, payload, **kwargs):
-    """
-    Build  raw ethernet frames for sending.
-    :param destination: bytes: MAC address sending to.
-    :param source: bytes: MAC address sending from
-    :param payload: bytes
-    :keyword type: int: Packet Type (optional)
-    :keyword tag: int: 802.11 tag (optional)
-    :return: bytes
-    """
-    if 'tag' in kwargs:
-        header = pack('! 6s 6s L H', destination, source, kwargs.get('tag'), kwargs.get('type', 0x0800))
-    else:
-        header = pack('! 6s 6s H', destination, source, kwargs.get('type', 0x0800))
+class Ethernet(BasePacket):
 
-    return header + payload
+    format = '! 6s 6s H'
 
+    def __init__(self, destination: str, source: str, payload: BasePacket, **kwargs):
+        BasePacket.__init__(self)
+        self.data['destinatin'] = destination
+        self.data['source'] = source
+        self.data['tag'] = kwargs.get('tag', None)
+        self.data['type'] = kwargs.get('type', 0x0800)
+        self.data['payload'] = payload
 
-def disassemble_ethernet(packet):
-    """
-    Disassemble a ethernet packet for inspection.
-    Can be used to build a packet later.
+    def build(self):
+        if(self.data['tag']):
+            header = pack('! 6s 6s L H', self.data['destination'], self.data['source'],
+                                        self.data['tag'], self.data['type'])
+        else:
+            header = pack(self.format, self.data['destination'], self.data['source'], self.data['type'])
 
-    :param packet: bytes: Ethernet packet to disassemble
-    :return: dict
-    """
-    out = dict()
+        return header + self.data['payload'].build()
 
-    ethe_tag_test = int.from_bytes(packet[12:14], 'big')
-    if(ethe_tag_test == 0x8100 or ethe_tag_test == 0x88a8):
-        keys = ('destination', 'source', 'tag', 'type')
-        values = unpack('! 6s 6s L H', packet[:18])
-        out['payload'] = packet[18:]
-    else:
-        keys = ('destination', 'source', 'type')
-        values = unpack('! 6s 6s H', packet[:14])
-        out['payload'] = packet[14:]
+    @classmethod
+    def disassemble(cls, packet: bytes, packet_type = IPv4):
+        """
+        Disassemble a ethernet packet for inspection.
+        Can be used to build a packet later.
 
-    for key, value in zip(keys, values):
-        out[key] = value
+        :param packet: bytes: Ethernet packet to disassemble
+        :return: dict
+        """
+        out = dict()
 
-    return out
+        ethe_tag_test = int.from_bytes(packet[12:14], 'big')
+        if (ethe_tag_test == 0x8100 or ethe_tag_test == 0x88a8):
+            keys = ('destination', 'source', 'tag', 'type')
+            values = unpack('! 6s 6s L H', packet[:18])
+            out['payload'] = packet[18:]
+        else:
+            keys = ('destination', 'source', 'type')
+            values = unpack('! 6s 6s H', packet[:14])
+            out['payload'] = packet_type.disassemle(packet[14:])
+
+        for key, value in zip(keys, values):
+            out[key] = value
+
+        return cls(**out)
+
+    def __len__(self):
+        return len(self.build())
 
 
 class IPv4(BasePacket):
@@ -97,7 +103,7 @@ class IPv4(BasePacket):
         self.data['payload'] = payload
 
 
-        def build(self):
+    def build(self):
             ihl_ver = (self.data['version'] << 4) | self.data['ihl']
             dscp_ecn = (self.data['dscp'] << 2) | self.data['ecn']
             flag_offset = (self.data['flags'] << 13) | self.data['offset']
@@ -108,10 +114,10 @@ class IPv4(BasePacket):
                           self.data['checksum'], ip_address(self.data['source']).packed,
                           ip_address(self.data['destination']).packed)
 
-            return header + self.data['options'] + self.data['payload']
+            return header + self.data['options'] + self.data['payload'].build()
 
     @classmethod
-    def disassemble(cls, packet: bytes):
+    def disassemble(cls, packet: bytes, packet_type=TCP):
         out = dict()
 
         ihl_ver = packet[0]
@@ -120,7 +126,7 @@ class IPv4(BasePacket):
 
         out['options'] = packet[20:out['ihl'] * 4]  # If header has options capture them
 
-        out['payload'] = packet[out['ihl'] * 4:]  # Get the payload of the IP packet
+        out['payload'] = UDP.disassemble(packet[out['ihl'] * 4:])  # Get the payload of the IP packet
 
         keys = ('dscp_ecn', 'length', 'id', 'flags_offset', 'ttl', 'protocol',
                 'checksum', 'source', 'destination')
@@ -171,73 +177,74 @@ class IPv4(BasePacket):
         return self.data['length']
 
 
+class TCP(BasePacket):
 
-def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
-    """
-    Build header for TCP packet
-    :param source: int: Source port number
-    :param destination: int: Destination port number
-    :param payload: bytes
-    :return: bytes
-    """
-    seq = kwargs.get('seq', 0)
-    ack_seq = kwargs.get('ack_seq', 0)
-    data_offset = kwargs.get('offset', 5)
+    format = '! 2H 2L 2B 3H'
 
-    # TCP Flags
-    ns = kwargs.get('ns', False)
-    cwr = kwargs.get('cwr', False)
-    ece = kwargs.get('ece', False)
-    urg = kwargs.get('urg', False)
-    ack = kwargs.get('ack', False)
-    psh = kwargs.get('psh', False)
-    rst = kwargs.get('rst', False)
-    syn = kwargs.get('syn', True)
-    fin = kwargs.get('fin', False)
+    def __init__(self, source: int, destination: int, payload: bytes, **kwargs):
+        BasePacket.__init__(self)
 
-    window = htons(kwargs.get('window', 5840))
-    checksum = kwargs.get('checksum', 0)
-    urg_pointer = kwargs.get('urg_pointer', 0)
+        self.data['source'] = source
+        self.data['destinaiton'] = destination
+        self.data['seq'] = kwargs.get('seq', 0)
+        self.data['ack_seq'] = kwargs.get('ack_seq', 0)
+        self.data['data_offset'] = kwargs.get('offset', 5)
 
-    offset_ns = (data_offset << 4) | ns
+        # TCP Flags
+        self.data['ns'] = kwargs.get('ns', False)
+        self.data['cwr'] = kwargs.get('cwr', False)
+        self.data['ece'] = kwargs.get('ece', False)
+        self.data['urg'] = kwargs.get('urg', False)
+        self.data['ack'] = kwargs.get('ack', False)
+        self.data['psh'] = kwargs.get('psh', False)
+        self.data['rst'] = kwargs.get('rst', False)
+        self.data['syn'] = kwargs.get('syn', True)
+        self.data['fin'] = kwargs.get('fin', False)
 
-    flags = 0
-    for val in (cwr, ece, urg, ack, psh, rst, syn, fin):
-        flags = (flags << 1) | val
+        self.data['window'] = htons(kwargs.get('window', 5840))
+        self.data['checksum'] = kwargs.get('checksum', 0)
+        self.data['urg_pointer'] = kwargs.get('urg_pointer', 0)
 
-    header = pack('! 2H 2L 2B 3H', source, destination, seq, ack_seq, offset_ns, flags, window, checksum, urg_pointer)
+        self.data['options'] = kwargs.get('options', b'')
 
-    return header + kwargs.get('options', b'') + payload
+        self.data['payload'] = payload
 
+    def build(self):
+        offset_ns = (self.data['data_offset'] << 4) | self.data['ns']
 
-def disassemble_tcp(packet: bytes):
-    """
-    Disassemble a TCP packet for inspection.
-    Can be used to build a packet later.
+        flags = 0
+        for key in ('cwr', 'ece', 'urg', 'ack', 'psh', 'rst', 'syn', 'fin'):
+            flags = (flags << 1) | self.data[key]
 
-    :param packet: bytes: TCP packet to disassemble
-    :return: dict
-    """
-    out = dict()
+        header = pack(self.format, self.data['source'], self.data['destination'], self.data['seq'],
+                        self.data['ack_seq'], self.data['offset_ns'], self.data['flags'],
+                        self.data['window'], self.data['checksum'], self.data['urg_pointer']
+                      )
 
-    keys = ('source', 'destinatin', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
-    values = unpack('! 2H 2L 2B 3H', packet[:20])
+        return header + self.data['options'] + self.data['payload']
 
-    for key, value in zip(keys, values):
-        if(key == 'offset_ns'):
-            out['offset'] = value >> 4
-            out['ns'] = bool(value & 0x01)
-        elif(key == 'flags'):
-            for flag in ('fin', 'syn', 'rst', 'psh', 'ack', 'urg', 'ece', 'cwr'):
-                out[flag] = bool(value & 0x01)
-                value = value >> 1
-        else:
-            out[key] = value
+    @classmethod
+    def disassemble(cls, packet: bytes, packet_type = None):
+        out = dict()
 
-    out['options'] = packet[20:out['offset']*4]
-    out['payload'] = packet[out['offset']*4:]
+        keys = ('source', 'destinatin', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
+        values = unpack('! 2H 2L 2B 3H', packet[:20])
 
-    return out
+        for key, value in zip(keys, values):
+            if (key == 'offset_ns'):
+                out['offset'] = value >> 4
+                out['ns'] = bool(value & 0x01)
+            elif (key == 'flags'):
+                for flag in ('fin', 'syn', 'rst', 'psh', 'ack', 'urg', 'ece', 'cwr'):
+                    out[flag] = bool(value & 0x01)
+                    value = value >> 1
+            else:
+                out[key] = value
+
+        out['options'] = packet[20:out['offset'] * 4]
+        out['payload'] = packet[out['offset'] * 4:]
+
+        return cls(**out)
 
 
 class UDP(BasePacket):
@@ -259,7 +266,7 @@ class UDP(BasePacket):
         return header + self.data['payload']
 
     @classmethod
-    def disassemble(cls, packet: bytes):
+    def disassemble(cls, packet: bytes, packet_type=None):
         """
         Disassemble a UDP packet for inspection.
 
