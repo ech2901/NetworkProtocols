@@ -5,8 +5,10 @@ from ipaddress import ip_address
 
 
 class BasePacket(object):
-    def __init__(self, format):
-        self.format = format
+
+    format = ''
+
+    def __init__(self):
         self.data = dict()
 
     def build(self):
@@ -22,6 +24,8 @@ class BasePacket(object):
     def set(self, **kwargs):
         self.data.update(kwargs)
 
+    def __len__(self):
+        pass
 
 
 def build_ethernet(destination: bytes, source: bytes, payload, **kwargs):
@@ -68,81 +72,104 @@ def disassemble_ethernet(packet):
     return out
 
 
-def build_ipv4(source: str, destination: str, payload: bytes, **kwargs):
-    """
-    Build header for IPv4 packet.
-    :param source: bytes: Source IP address
-    :param destination: bytes: Destinatin IP address
-    :param payload: bytes
-    :keyword version: int: 4 bit field specifying version. (optional: default is 4)
-    :keyword ihl: int: 4 bit field specifying header size. (optional unless adding IP Options: default is 5)
-    :keyword id: int: 4 byte field specifying packet ID. (optional: default is random)
-    :keyword flags: int: flags for IP header. (optional: default is 000)
-    :keyword offset: int: Packet offset for fragmented packets. (optional: default is 0)
-    :keyword ttl: int: Time to live for packet. (optional: default is 255)
-    :keyword protocol: int: Protocol used (tcp-6, udp-17, etc). (optional: default is 6)
+class IPv4(BasePacket):
 
-    :return: bytes
-    """
-    version = kwargs.get('version', 4)  # 4 bit field; should omit as this identifies packet as ipv4
-    ihl = kwargs.get('ihl', 5)  # 4 bit field; size in bytes
-    dscp = kwargs.get('dscp', 0)  # 6 bit field
-    ecn = kwargs.get('ecn', 0)    # 2 bit field
-    length = kwargs.get('length', (ihl*4) + len(payload))  # 32 bit field; should omit as kernel will compute
-    id = kwargs.get('id', int.from_bytes(urandom(2), 'big'))  # 32 bit field
-    flags = kwargs.get('flags', 0)  # 3 bit field
-    offset = kwargs.get('offset', 0)  # 29 bit field
-    ttl = kwargs.get('ttl', 255)  # 8 bit field
-    protocol = kwargs.get('protocol', IPPROTO_TCP)  # 8 bit field
-    checksum = kwargs.get('cheksum', 0)  # 32 bit field; should omit as kernel will compute
+    format = '! 2B 3H 2B H 4s 4s'
 
-    ihl_ver = (version << 4) | ihl
-    dscp_ecn = (dscp << 2) | ecn
-    flag_offset = (flags << 13) | offset
+    def __init__(self, source: str, destination: str, payload: BasePacket, **kwargs):
+        BasePacket.__init__(self)
 
-    header = pack('! 2B 3H 2B H 4s 4s',
-                  ihl_ver, dscp_ecn, length, id,
-                  flag_offset, ttl, protocol,
-                  checksum, ip_address(source).packed, ip_address(destination).packed)
+        self.data['source'] = source
+        self.data['destination'] = destination
+        self.data['version'] = kwargs.get('version', 4)
+        self.data['ihl'] = kwargs.get('ihl', 5)
+        self.data['dscp'] = kwargs.get('dscp', 0)
+        self.data['ecn'] = kwargs.get('ecn', 0)
+        self.data['length'] = kwargs.get('length', (self.data['ihl'] * 4) + len(payload))
+        self.data['id'] = kwargs.get('id', 0)
+        self.data['flags'] = kwargs.get('flags', 0)
+        self.data['offset'] = kwargs.get('offset', 0)
+        self.data['ttl'] = kwargs.get('ttl', 255)
+        self.data['protocol'] = kwargs.get('protocol', IPPROTO_TCP)
+        self.data['checksum'] = kwargs.get('cheksum', 0)
+        self.data['options'] = kwargs.get('options', b'')
 
-    return header + kwargs.get('options', b'') + payload
+        self.data['payload'] = payload
 
 
-def disassemble_ipv4(packet: bytes):
-    """
-    Disassemble a IPv4 packet for inspection.
-    Can be used to build a packet later.
+        def build(self):
+            ihl_ver = (self.data['version'] << 4) | self.data['ihl']
+            dscp_ecn = (self.data['dscp'] << 2) | self.data['ecn']
+            flag_offset = (self.data['flags'] << 13) | self.data['offset']
 
-    :param packet: bytes: IPv4 packet to disassemble
-    :return: dict
-    """
-    out = dict()
+            header = pack(self.format,
+                          ihl_ver, dscp_ecn, self.data['length'], self.data['id'],
+                          flag_offset, self.data['ttl'], self.data['protocol'],
+                          self.data['checksum'], ip_address(self.data['source']).packed,
+                          ip_address(self.data['destination']).packed)
 
-    ihl_ver = packet[0]
-    out['version'] = ihl_ver >> 4  # IP Version. Should always be 4 for this disassembly
-    out['ihl'] = ihl_ver & 0x0f  # length of header in 4 byte words
+            return header + self.data['options'] + self.data['payload']
 
-    out['options'] = packet[20:out['ihl']*4]  # If header has options capture them
+    @classmethod
+    def disassemble(cls, packet: bytes):
+        out = dict()
 
-    out['payload'] = packet[out['ihl']*4:]  # Get the payload of the IP packet
+        ihl_ver = packet[0]
+        out['version'] = ihl_ver >> 4  # IP Version. Should always be 4 for this disassembly
+        out['ihl'] = ihl_ver & 0x0f  # length of header in 4 byte words
 
-    keys = ('dscp_ecn', 'length', 'id', 'flags_offset', 'ttl', 'protocol',
-            'checksum', 'source', 'destination')
-    values = unpack('! B 3H 2B H 4s 4s', packet[1:20])
+        out['options'] = packet[20:out['ihl'] * 4]  # If header has options capture them
 
-    for key, value in zip(keys, values):
-        if(key == 'dscp_ecn'):
-            out['dscp'] = value >> 2
-            out['ecn'] = value & 0x03
-        elif(key == 'flags_offset'):
-            out['flags'] = value >> 13
-            out['offset'] = value & (0xffff >> 3)
-        elif(key in ('source', 'destination')):
-            out[key] = ip_address(value)
-        else:
-            out[key] = value
+        out['payload'] = packet[out['ihl'] * 4:]  # Get the payload of the IP packet
 
-    return out
+        keys = ('dscp_ecn', 'length', 'id', 'flags_offset', 'ttl', 'protocol',
+                'checksum', 'source', 'destination')
+        values = unpack(cls.format, packet[1:20])
+
+        for key, value in zip(keys, values):
+            if (key == 'dscp_ecn'):
+                out['dscp'] = value >> 2
+                out['ecn'] = value & 0x03
+            elif (key == 'flags_offset'):
+                out['flags'] = value >> 13
+                out['offset'] = value & (0xffff >> 3)
+            elif (key in ('source', 'destination')):
+                out[key] = ip_address(value)
+            else:
+                out[key] = value
+
+        return cls(**out)
+
+    def calc_checksum(self, *, data=b''):
+        pseudo_header = ip_address(self.data['source']).packed + ip_address(self.data['destination']).packed
+        pseudo_header = pseudo_header + pack('! 2B H', 0, self.data['protocol'], len(self.data['payload']))
+        self.data['payload'].calc_checksum(data=pseudo_header)
+
+        calc_bytes = self.build()[:self.data['ihl'] * 4]
+
+        if (len(calc_bytes) % 2 != 0):
+            # Make sure there is an even number of bytes
+            calc_bytes = calc_bytes + b'\x00'
+
+        values = unpack(f'! {len(calc_bytes) // 2}H', calc_bytes)
+        sum_total = sum(values)
+
+        while(sum_total > 0xffff):
+            # If sum is bigger than 2 bytes, add the overflow to the sum
+            sum_total = sum_total + (sum_total >> 16)
+
+        # Calculate the compliment of the sum to get the checksum.
+        compliment = -sum_total % 0xffff
+
+        if compliment:
+            self.data['checksum'] = compliment
+            return
+        # If the checksum is calculated to be zero, set to 0xFFFF
+        self.data['checksum'] = 0xffff
+
+    def __len__(self):
+        return self.data['length']
+
 
 
 def build_tcp(source: int, destination: int, payload: bytes, **kwargs):
@@ -214,8 +241,11 @@ def disassemble_tcp(packet: bytes):
 
 
 class UDP(BasePacket):
+
+    format = '! 4H'
+
     def __init__(self, source: int, destination: int, payload: bytes, **kwargs):
-        BasePacket.__init__(self, '! 4H')
+        BasePacket.__init__(self)
         self.data['source'] = source
         self.data['destination'] = destination
         self.data['length'] = kwargs.get('length', 8 + len(payload))
@@ -240,7 +270,7 @@ class UDP(BasePacket):
         out = dict()
 
         keys = ('source', 'destination', 'length', 'checksum')
-        values = unpack('! 4H', packet[:8])
+        values = unpack(cls.format, packet[:8])
 
         for key, value in zip(keys, values):
             out[key] = value
@@ -277,5 +307,6 @@ class UDP(BasePacket):
         # If the checksum is calculated to be zero, set to 0xFFFF
         self.data['checksum'] = 0xffff
 
-
+    def __len__(self):
+        return self.data['length']
 
