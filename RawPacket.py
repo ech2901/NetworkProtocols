@@ -49,7 +49,7 @@ class Ethernet(BasePacket):
         return header + self.data['payload'].build()
 
     @classmethod
-    def disassemble(cls, packet: bytes, packet_type = IPv4):
+    def disassemble(cls, packet: bytes, packet_type = BasePacket):
         """
         Disassemble a ethernet packet for inspection.
         Can be used to build a packet later.
@@ -117,7 +117,7 @@ class IPv4(BasePacket):
             return header + self.data['options'] + self.data['payload'].build()
 
     @classmethod
-    def disassemble(cls, packet: bytes, packet_type=TCP):
+    def disassemble(cls, packet: bytes, packet_type=BasePacket):
         out = dict()
 
         ihl_ver = packet[0]
