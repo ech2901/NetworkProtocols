@@ -1,24 +1,58 @@
-from socket import htons, IPPROTO_TCP
+from socket import htons
 from struct import pack, unpack
 from ipaddress import ip_address
 
+# --------------------------------------------------
+# Base Class(es)
+#
+#
+# --------------------------------------------------
 
 class BasePacket(object):
 
-    format = ''
+    format = ''  # Used to pack / unpack data in subclasses
+    # Used when an identifying value is needed for a derived class
+    # IE: Ethernet frames need to know the ethertype of the payload
+    identifier = -1
 
     def __init__(self):
+        # Initialize data storage for packet
         self.data = dict()
 
     def build(self):
         pass
 
     @classmethod
-    def disassemble(cls, packet: bytes, packet_type = None):
+    def disassemble(cls, packet: bytes, packet_type=None):
         pass
 
     def calc_checksum(self, *, data=b''):
         pass
+
+    def _calc_compliment_(self, data):
+        out = 0
+
+        if (len(data) % 2 != 0):
+            # Make sure there is an even number of bytes
+            data = data + b'\x00'
+
+        # unpack all the bytes into 2 byte integers
+        values = unpack(f'! {len(data) // 2}H', data)
+        # Sum values together
+        out = out + sum(values)
+
+        while(out > 0xffff):
+            # If sum is bigger than 2 bytes, add the overflow to the sum
+            out = (out & 0xffff) + (out >> 16)
+
+        # Calculate the compliment of the sum to get the checksum.
+        compliment = -out % 0xffff
+
+        if compliment:
+            return compliment
+
+        # If the checksum is calculated to be zero, set to 0xFFFF
+        return 0xffff
 
     def update(self, **kwargs):
         self.data.update(kwargs)
@@ -26,17 +60,22 @@ class BasePacket(object):
     def __len__(self):
         pass
 
+# --------------------------------------------------
+# Link Layer
+#
+#
+# --------------------------------------------------
 
 class Ethernet(BasePacket):
 
-    format = '! 6s 6s H'
+    format = '! 6s 6s H'  # Format for Ethernet header
 
     def __init__(self, destination: bytes, source: bytes, payload: BasePacket, **kwargs):
         BasePacket.__init__(self)
         self.data['destination'] = destination
         self.data['source'] = source
         self.data['tag'] = kwargs.get('tag', None)
-        self.data['type'] = kwargs.get('type', 0x0800)
+        self.data['type'] = kwargs.get('type', payload.identifier)
         self.data['payload'] = payload
 
     def build(self):
@@ -49,7 +88,7 @@ class Ethernet(BasePacket):
         return header + self.data['payload'].build()
 
     @classmethod
-    def disassemble(cls, packet: bytes, packet_type = BasePacket):
+    def disassemble(cls, packet: bytes, packet_type=BasePacket):
         """
         Disassemble a ethernet packet for inspection.
         Can be used to build a packet later.
@@ -80,10 +119,15 @@ class Ethernet(BasePacket):
     def __len__(self):
         return len(self.build())
 
-
+# --------------------------------------------------
+# Internet Layer
+#
+#
+# --------------------------------------------------
 class IPv4(BasePacket):
 
     format = '! 2B 3H 2B H 4s 4s'
+    identifier = 0x0800
 
     def __init__(self, source: str, destination: str, payload: BasePacket, **kwargs):
         BasePacket.__init__(self)
@@ -99,7 +143,7 @@ class IPv4(BasePacket):
         self.data['flags'] = kwargs.get('flags', 0)
         self.data['offset'] = kwargs.get('offset', 0)
         self.data['ttl'] = kwargs.get('ttl', 255)
-        self.data['protocol'] = kwargs.get('protocol', IPPROTO_TCP)
+        self.data['protocol'] = kwargs.get('protocol', payload.identifier)
         self.data['checksum'] = kwargs.get('cheksum', 0)
         self.data['options'] = kwargs.get('options', b'')
 
@@ -156,33 +200,23 @@ class IPv4(BasePacket):
 
         calc_bytes = self.build()[:self.data['ihl'] * 4]
 
-        if (len(calc_bytes) % 2 != 0):
-            # Make sure there is an even number of bytes
-            calc_bytes = calc_bytes + b'\x00'
+        self.data['checksum'] = self._calc_compliment_(calc_bytes)
 
-        values = unpack(f'! {len(calc_bytes) // 2}H', calc_bytes)
-        sum_total = sum(values)
-
-        while(sum_total > 0xffff):
-            # If sum is bigger than 2 bytes, add the overflow to the sum
-            sum_total = (sum_total & 0xffff) + (sum_total >> 16)
-
-        # Calculate the compliment of the sum to get the checksum.
-        compliment = -sum_total % 0xffff
-
-        if compliment:
-            self.data['checksum'] = compliment
-            return
-        # If the checksum is calculated to be zero, set to 0xFFFF
-        self.data['checksum'] = 0xffff
 
     def __len__(self):
         return self.data['length']
 
 
+# --------------------------------------------------
+# Transport Layer
+#
+#
+# --------------------------------------------------
+
 class TCP(BasePacket):
 
     format = '! 2H 2L 2B 3H'
+    identifier = 6
 
     def __init__(self, source: int, destination: int, payload: bytes, **kwargs):
         BasePacket.__init__(self)
@@ -220,14 +254,14 @@ class TCP(BasePacket):
             flags = (flags << 1) | self.data[key]
 
         header = pack(self.format, self.data['source'], self.data['destination'], self.data['seq'],
-                        self.data['ack_seq'], self.data['offset_ns'], self.data['flags'],
+                        self.data['ack_seq'], offset_ns, flags,
                         self.data['window'], self.data['checksum'], self.data['urg_pointer']
                       )
 
         return header + self.data['options'] + self.data['payload']
 
     @classmethod
-    def disassemble(cls, packet: bytes, packet_type = None):
+    def disassemble(cls, packet: bytes, packet_type=None):
         out = dict()
 
         keys = ('source', 'destinatin', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
@@ -249,10 +283,17 @@ class TCP(BasePacket):
 
         return cls(**out)
 
+    def calc_checksum(self, *, data=b''):
+        self.data['checksum'] = self._calc_compliment_(data + self.build())
+
+    def __len__(self):
+        return (self.data['data_offset'] * 4) + len(self.data['payload'])
+
 
 class UDP(BasePacket):
 
     format = '! 4H'
+    identifier = 17
 
     def __init__(self, source: int, destination: int, payload: bytes, **kwargs):
         BasePacket.__init__(self)
@@ -290,32 +331,7 @@ class UDP(BasePacket):
         return cls(**out)
 
     def calc_checksum(self, *, data=b''):
-        # source, destination, and length are already 2 bytes each
-        sum_total = self.data['source'] + self.data['destination'] + self.data['length']
-
-        # Bytes of data we need to calculate for
-        calc_bytes = data + self.data['payload']
-
-        if(len(calc_bytes) % 2 != 0):
-            # Make sure there is an even number of bytes
-            calc_bytes = calc_bytes + b'\x00'
-
-        # unpack all the bytes into 2 byte integers
-        values = unpack(f'! {len(calc_bytes) // 2}H', calc_bytes)
-        sum_total = sum_total + sum(values)
-
-        while(sum_total > 0xffff):
-            # If sum is bigger than 2 bytes, add the overflow to the sum
-            sum_total = (sum_total & 0xffff) + (sum_total >> 16)
-
-        # Calculate the compliment of the sum to get the checksum.
-        compliment = -sum_total % 0xffff
-
-        if compliment:
-            self.data['checksum'] = compliment
-            return
-        # If the checksum is calculated to be zero, set to 0xFFFF
-        self.data['checksum'] = 0xffff
+        self.data['checksum'] = self._calc_compliment_(data + self.build())
 
     def __len__(self):
         return self.data['length']
