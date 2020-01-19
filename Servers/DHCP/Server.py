@@ -4,8 +4,7 @@ from struct import pack, unpack
 from socket import IPPROTO_UDP
 
 from Servers import RawServer
-from RawPacket import disassemble_ethernet, disassemble_ipv4, disassemble_udp
-from RawPacket import build_ethernet, build_ipv4, build_udp
+from RawPacket import Ethernet, IPv4, UDP
 from Servers.DHCP import Options
 
 

@@ -1,6 +1,7 @@
+from ipaddress import ip_address
 from socket import htons
 from struct import pack, unpack
-from ipaddress import ip_address
+
 
 # --------------------------------------------------
 # Base Class(es)
@@ -15,9 +16,17 @@ class BasePacket(object):
     # IE: Ethernet frames need to know the ethertype of the payload
     identifier = -1
 
-    def __init__(self):
+    classes = dict()
+
+    def __init__(self, **kwargs):
         # Initialize data storage for packet
-        self.data = dict()
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __init_subclass__(cls, **kwargs):
+        if(cls.identifier >= 0):
+            super().__init_subclass__(**kwargs)
+            cls.classes[cls.identifier] = cls
 
     def build(self):
         pass
@@ -102,11 +111,11 @@ class Ethernet(BasePacket):
         if (ethe_tag_test == 0x8100 or ethe_tag_test == 0x88a8):
             keys = ('destination', 'source', 'tag', 'type')
             values = unpack('! 6s 6s L H', packet[:18])
-            out['payload'] = packet[18:]
+            out['payload'] = cls.classes[values[-1]].disassemble(packet[18:])
         else:
             keys = ('destination', 'source', 'type')
             values = unpack('! 6s 6s H', packet[:14])
-            out['payload'] = packet_type.disassemle(packet[14:])
+            out['payload'] = cls.classes[values[-1]].disassemble(packet[14:])
 
         for key, value in zip(keys, values):
             out[key] = value
@@ -126,7 +135,7 @@ class Ethernet(BasePacket):
 # --------------------------------------------------
 class IPv4(BasePacket):
 
-    format = '! 2B 3H 2B H 4s 4s'
+    format = '! B 3H 2B H 4s 4s'
     identifier = 0x0800
 
     def __init__(self, source: str, destination: str, payload: BasePacket, **kwargs):
@@ -148,7 +157,6 @@ class IPv4(BasePacket):
         self.data['options'] = kwargs.get('options', b'')
 
         self.data['payload'] = payload
-
 
     def build(self):
             ihl_ver = (self.data['version'] << 4) | self.data['ihl']
@@ -173,8 +181,6 @@ class IPv4(BasePacket):
 
         out['options'] = packet[20:out['ihl'] * 4]  # If header has options capture them
 
-        out['payload'] = UDP.disassemble(packet[out['ihl'] * 4:])  # Get the payload of the IP packet
-
         keys = ('dscp_ecn', 'length', 'id', 'flags_offset', 'ttl', 'protocol',
                 'checksum', 'source', 'destination')
         values = unpack(cls.format, packet[1:20])
@@ -191,6 +197,9 @@ class IPv4(BasePacket):
             else:
                 out[key] = value
 
+        # Get the payload of the IP packet
+        out['payload'] = cls.classes[out['protocol']].disassemble(packet[out['ihl'] * 4:])
+
         return cls(**out)
 
     def calc_checksum(self, *, data=b''):
@@ -201,7 +210,6 @@ class IPv4(BasePacket):
         calc_bytes = self.build()[:self.data['ihl'] * 4]
 
         self.data['checksum'] = self._calc_compliment_(calc_bytes)
-
 
     def __len__(self):
         return self.data['length']
@@ -264,7 +272,7 @@ class TCP(BasePacket):
     def disassemble(cls, packet: bytes, packet_type=None):
         out = dict()
 
-        keys = ('source', 'destinatin', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
+        keys = ('source', 'destination', 'seq', 'ack_seq', 'offset_ns', 'flags', 'window', 'checksum', 'urg_pointer')
         values = unpack('! 2H 2L 2B 3H', packet[:20])
 
         for key, value in zip(keys, values):
@@ -275,6 +283,8 @@ class TCP(BasePacket):
                 for flag in ('fin', 'syn', 'rst', 'psh', 'ack', 'urg', 'ece', 'cwr'):
                     out[flag] = bool(value & 0x01)
                     value = value >> 1
+            elif (key in ('source', 'destination')):
+                out[key] = ip_address(value)
             else:
                 out[key] = value
 
