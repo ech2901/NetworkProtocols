@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
-from ipaddress import ip_address
+from ipaddress import IPv4Address, IPv6Address
 from socket import htons
 from struct import pack, unpack
+from typing import Dict
 
 
 # --------------------------------------------------
@@ -10,16 +11,17 @@ from struct import pack, unpack
 #
 # --------------------------------------------------
 class BasePacket(object):
+
     format: str = field(default='', init=False, repr=False)  # Used to pack / unpack data in subclasses
     # Used when an identifying value is needed for a derived class
     # IE: Ethernet frames need to know the ethertype of the payload
     identifier: int = field(default=-1, init=False, repr=False)
 
-    classes: str = field(default=dict(), init=False, repr=False)
+    classes: Dict = field(default=dict(), init=False, repr=False)
 
     def __init_subclass__(cls, **kwargs):
 
-        if (int(cls.identifier.default) >= 0):
+        if (cls.identifier.default >= 0):
             super().__init_subclass__(**kwargs)
             cls.classes.default[cls.identifier.default] = cls
 
@@ -68,6 +70,7 @@ class BasePacket(object):
 # --------------------------------------------------
 @dataclass(init=False)
 class Ethernet(BasePacket):
+
     destination: bytes
     source: bytes
     tag: bytes
@@ -131,14 +134,17 @@ class Ethernet(BasePacket):
 #
 #
 # --------------------------------------------------
+
+
 @dataclass(init=False)
 class IPv4(BasePacket):
+
     format: str = field(default='! B 3H 2B H 4s 4s', init=False, repr=False)
     identifier: int = field(default=0x0800, init=False, repr=False)
 
-    source: bytes
-    destination: bytes
-    version: int
+    source: IPv4Address
+    destination: IPv4Address
+    version: int = field(default=4, init=False)
     ihl: int
     dscp: int
     ecn: int
@@ -153,12 +159,12 @@ class IPv4(BasePacket):
 
     payload: BasePacket
 
-    def __init__(self, source: str, destination: str, payload: BasePacket, **kwargs):
+    def __init__(self, source: IPv4Address, destination: IPv4Address, payload: BasePacket, **kwargs):
         BasePacket.__init__(self)
 
         self.source = source
         self.destination = destination
-        self.version = kwargs.get('version', 4)
+        # version would go here if it wasn't static
         self.ihl = kwargs.get('ihl', 5)
         self.dscp = kwargs.get('dscp', 0)
         self.ecn = kwargs.get('ecn', 0)
@@ -178,20 +184,19 @@ class IPv4(BasePacket):
         dscp_ecn = (self.dscp << 2) | self.ecn
         flag_offset = (self.flags << 13) | self.offset
 
-            header = pack(self.format,
-                          ihl_ver, dscp_ecn, self.length, self.id,
-                          flag_offset, self.ttl, self.protocol,
-                          self.checksum, ip_address(self.source).packed,
-                          ip_address(self.destination).packed)
+        header = pack(self.format,
+                      ihl_ver, dscp_ecn, self.length, self.id,
+                      flag_offset, self.ttl, self.protocol,
+                      self.checksum, self.source.packed,
+                      self.destination.packed)
 
-    return header + self.options + self.payload.build()
+        return header + self.options + self.payload.build()
 
     @classmethod
     def disassemble(cls, packet: bytes):
         out = dict()
 
         ihl_ver = packet[0]
-        out['version'] = ihl_ver >> 4  # IP Version. Should always be 4 for this disassembly
         out['ihl'] = ihl_ver & 0x0f  # length of header in 4 byte words
 
         out['options'] = packet[20:out['ihl'] * 4]  # If header has options capture them
@@ -208,7 +213,7 @@ class IPv4(BasePacket):
                 out['flags'] = value >> 13
                 out['offset'] = value & (0xffff >> 3)
             elif (key in ('source', 'destination')):
-                out[key] = ip_address(value)
+                out[key] = IPv4Address(value)
             else:
                 out[key] = value
 
@@ -218,7 +223,7 @@ class IPv4(BasePacket):
         return cls(**out)
 
     def calc_checksum(self, *, data=b''):
-        pseudo_header = ip_address(self.source).packed + ip_address(self.destination).packed
+        pseudo_header = self.source.packed + self.destination.packed
         pseudo_header = pseudo_header + pack('! 2B H', 0, self.protocol, len(self.payload))
         self.payload.calc_checksum(data=pseudo_header)
 
@@ -228,6 +233,77 @@ class IPv4(BasePacket):
 
     def __len__(self):
         return self.length
+
+
+@dataclass(init=False)
+class IPv6(BasePacket):
+    format: str = field(default='! L H 2B 16s 16s', init=False, repr=False)
+    identifier: int = field(default=0x86DD, init=False, repr=False)
+
+    source: IPv6Address
+    destination: IPv6Address
+    version: int = field(default=6, init=False)
+    ds: int
+    ecn: int
+    label: int
+    length: int  # Length of payload
+    next_header: int
+    limit: int
+    payload: BasePacket
+
+    def __init__(self, source: IPv6Address, destination: IPv6Address, payload: BasePacket, **kwargs):
+        self.source = source
+        self.destination = destination
+        # version would go here if it wasn't static
+        self.ds = kwargs.get('ds', 0)
+        self.ecn = kwargs.get('ecn', 0)
+        self.label = kwargs.get('label', 0)
+        self.length = kwargs.get('length', len(payload))
+        self.next_header = kwargs.get('next_header', payload.identifier)
+        self.limit = kwargs.get('limit', 255)
+
+        self.payload = payload
+
+    def build(self):
+        ver_class_label = (self.version << 28) + (self.ds << 22)
+        ver_class_label = ver_class_label + (self.ecn << 20) + self.label
+
+        header = pack(self.format, ver_class_label, self.length,
+                      self.next_header, self.limit, self.source, self.destination
+                      )
+
+        return header + self.payload.build()
+
+    @classmethod
+    def disassemble(cls, packet: bytes):
+        out = dict()
+
+        keys = ('ver_class_label', 'length', 'next_header', 'limit', 'source', 'destination')
+        values = unpack(cls.format, packet[:40])
+
+        for key, value in zip(keys, values):
+            if (key == 'ver_class_label'):
+                out['ds'] = (value >> 22) & 0x3f
+                out['ecn'] = (value >> 20) & 0x03
+                out['label'] = value & 0xf_ffff
+            elif (key in ('source', 'destination')):
+                out[key] = IPv6Address(value)
+            else:
+                out[key] = value
+
+        out['payload'] = BasePacket.classes.default[out['next_header']].disassemble(packet[40:out['length']])
+
+        return cls(**out)
+
+    def calc_checksum(self, *, data=b''):
+        psuedo_header = self.source.packed + self.destination.packed
+        psuedo_header = psuedo_header + pack('! 2L', len(self.payload), self.next_header)
+
+        self.payload.calc_checksum(data=psuedo_header)
+
+    def __len__(self):
+        return 40 + self.length
+
 
 
 # --------------------------------------------------
@@ -333,7 +409,6 @@ class TCP(BasePacket):
 
     def __len__(self):
         return (self.data_offset * 4) + len(self.payload)
-
 
 @dataclass(init=False)
 class UDP(BasePacket):
