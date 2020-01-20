@@ -1,6 +1,8 @@
 from socketserver import ThreadingTCPServer, ThreadingUDPServer, BaseServer, ThreadingMixIn
-from threading import Thread
 from sys import platform
+from threading import Thread
+
+from RawPacket import MAC_Address
 
 
 # Base server that runs in it's own daemonic thread
@@ -55,22 +57,20 @@ if('linux' in platform):
 
         socket_type = socket.SOCK_RAW
 
-        socket_proto = socket.htons(3)
-
         request_queue_size = 5
 
         allow_reuse_address = False
 
         max_packet_size = 8192
 
-        def __init__(self, interface, RequestHandlerClass, bind_and_activate=True):
+        def __init__(self, interface, RequestHandlerClass, bind_and_activate=True, *, ethertype=0x0800):
             """Constructor.  May be extended, do not override."""
             BaseServer.__init__(self, (interface, 0), RequestHandlerClass)
             Thread.__init__(self, target=self.serve_forever)
 
             self.socket = socket.socket(self.address_family,
                                         self.socket_type,
-                                        self.socket_proto)
+                                        ethertype)
             if bind_and_activate:
                 try:
                     self.server_bind()
@@ -93,7 +93,8 @@ if('linux' in platform):
             if self.allow_reuse_address:
                 self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.socket.bind(self.server_address)
-            self.server_address = self.socket.getsockname()
+            server_address = self.socket.getsockname()
+            self.server_address = (*server_address[:-1], MAC_Address(server_address[-1]))
 
         def server_activate(self):
             # No need to call listen() for UDP.
@@ -117,6 +118,7 @@ if('linux' in platform):
 
         def get_request(self):
             data, client_addr = self.socket.recvfrom(self.max_packet_size)
+            client_addr = (*client_addr[:-1], MAC_Address(client_addr[-1]))
             return (data, self.socket), client_addr
 
         def shutdown_request(self, request):

@@ -1,26 +1,25 @@
-from socketserver import BaseRequestHandler
 from ipaddress import ip_network
-from struct import pack, unpack
 from socket import IPPROTO_UDP
+from socketserver import BaseRequestHandler
+from struct import unpack
 
+from RawPacket import Ethernet, MAC_Address
 from Servers import RawServer
-from RawPacket import Ethernet, IPv4, UDP
 from Servers.DHCP import Options
+
+BROADCAST_MAC = MAC_Address('FF:FF:FF:FF:FF:FF')
 
 
 
 class DHCPHandler(BaseRequestHandler):
     def setup(self):
-        packet = self.request[0]
-
-        self.ethernet = disassemble_ethernet(packet)
-        if(self.ethernet['type'] == 0x0800):
-            self.ip = disassemble_ipv4(self.ethernet['payload'])
-            if(self.ip['protocol'] == IPPROTO_UDP):
-                self.udp = disassemble_udp(self.ip['payload'])
-                if(self.udp['destination'] == self.server.server_port):
-                    self.is_dhcp = True
-                    return
+        self.eth = Ethernet.disassemble(self.request[0])
+        self.ip = self.eth.payload
+        if (self.ip.protocol == IPPROTO_UDP):
+            self.udp = self.ip.payload
+            if (self.udp.destination == self.server.server_port):
+                self.is_dhcp = True
+                return
 
         self.is_dhcp = False
 
@@ -61,19 +60,6 @@ class DHCPHandler(BaseRequestHandler):
         pass
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 class DHCPServer(RawServer):
     server_port = 67
     client_port = 68
@@ -91,8 +77,8 @@ class DHCPServer(RawServer):
         Return True if we should proceed with this request.
         """
 
-        is_broadcast = request[0][:6] == b'\xff'*6
-        is_to_interface = request[0][:6] == self.server_address[-1]
+        is_broadcast = request[1][-1] == BROADCAST_MAC
+        is_to_interface = request[1][-1] == self.server_address[-1]
 
         return (is_broadcast or is_to_interface)
 
