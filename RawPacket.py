@@ -42,6 +42,36 @@ class MAC_Address(object):
 
 
 # --------------------------------------------------
+# Helper Class(es)
+#
+#
+# --------------------------------------------------
+
+class MAC_Address(object):
+    def __init__(self, address):
+        if (type(address) == int):
+            self.packed = address.to_bytes(6, 'big')
+            self.address = ':'.join([hex(i)[2:].rjust(2, '0') for i in self.packed])
+            self._address = address
+        elif (type(address) == bytes):
+            self.packed = address
+            self.address = ':'.join([hex(i)[2:].rjust(2, '0') for i in self.packed])
+            self._address = int.from_bytes(address, 'big')
+        elif (type(address) == str):
+            self.packed = pack('! 6B', [int(i, 16) for i in address.split(':')])
+            self.address = address
+            self._address = int.from_bytes(self.packed, 'big')
+        else:
+            raise TypeError(
+                f'Argument <address> must be of type bytes, int, or str but type {type(address)} was provided.')
+
+    def __repr__(self):
+        return f"MAC_Address('{self.address}')"
+
+    def __str__(self):
+        return self.address
+
+# --------------------------------------------------
 # Base Class(es)
 #
 #

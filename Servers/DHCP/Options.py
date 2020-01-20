@@ -298,7 +298,7 @@ class DefaultTTL(BaseOption):
 
 
 @dataclass(init=False)
-class MTUTimeout(TimeOffset)
+class MTUTimeout(TimeOffset):
     code: int = field(default=24)
 
 
