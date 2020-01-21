@@ -99,7 +99,12 @@ class DHCPHandler(BaseRequestHandler):
                 temp_client_id = option.data
 
         self.packet.yiaddr = temp_yiaddr
-        self.server.offers[(self.packet.xid, self.packet.chaddr)] = self.server.yiaddr
+        self.server.offers[(self.packet.xid, self.packet.chaddr)] = (self.server.yiaddr, temp_client_id)
+
+        return_options.append(Options.End())
+
+        self.packet.options = return_options
+        self.send_packet = True
 
     def handle_req(self):
         print(self.packet.build())

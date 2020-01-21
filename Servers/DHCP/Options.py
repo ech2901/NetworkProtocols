@@ -120,42 +120,42 @@ class Router(BaseOption):
 
 
 @dataclass(init=False)
-class TimeServer(Router):
+class TimeServers(Router):
     code: int = field(default=4, init=False)
 
 
 @dataclass(init=False)
-class NameServer(Router):
+class NameServers(Router):
     code: int = field(default=5, init=False)
 
 
 @dataclass(init=False)
-class DNSServer(Router):
+class DNSServers(Router):
     code: int = field(default=6, init=False)
 
 
 @dataclass(init=False)
-class LogServer(Router):
+class LogServers(Router):
     code: int = field(default=7, init=False)
 
 
 @dataclass(init=False)
-class CookieServer(Router):
+class CookieServers(Router):
     code: int = field(default=8, init=False)
 
 
 @dataclass(init=False)
-class LPRServer(Router):
+class LPRServers(Router):
     code: int = field(default=9, init=False)
 
 
 @dataclass(init=False)
-class ImpressServer(Router):
+class ImpressServers(Router):
     code: int = field(default=10, init=False)
 
 
 @dataclass(init=False)
-class ResourceLocationServer(Router):
+class ResourceLocationServers(Router):
     code: int = field(default=11, init=False)
 
 
@@ -452,7 +452,7 @@ class NetBIOSNameServers(Router):
 
 
 @dataclass(init=False)
-class NetBIOSDistroServers(Router):
+class NetBIOSDistroServers(HostName):
     code: int = field(default=45)
 
 
