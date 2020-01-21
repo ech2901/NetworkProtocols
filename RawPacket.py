@@ -24,6 +24,10 @@ class MAC_Address(object):
             self.packed = pack('! 6B', [int(i, 16) for i in address.split(':')])
             self.address = address
             self._address = int.from_bytes(self.packed, 'big')
+        elif (type(address) == MAC_Address):
+            self.packed = address.packed
+            self.address = address.address
+            self._address = address._address
         else:
             raise TypeError(
                 f'Argument <address> must be of type bytes, int, or str but type {type(address)} was provided.')
@@ -99,6 +103,9 @@ class BasePacket(object):
     def __len__(self):
         pass
 
+    def swap(self):
+        pass
+
 # --------------------------------------------------
 # Link Layer
 #
@@ -158,6 +165,10 @@ class Ethernet(BasePacket):
                 out[key] = value
 
         return cls(**out)
+
+    def swap(self):
+        self.destination, self.source = self.source, self.destination
+        self.payload.swap()
 
     def calc_checksum(self, *, data=b''):
         self.payload.calc_checksum()
@@ -270,6 +281,10 @@ class IPv4(BasePacket):
     def __len__(self):
         return self.length
 
+    def swap(self):
+        self.destination, self.source = self.source, self.destination
+        self.payload.swap()
+
 
 @dataclass(init=False)
 class IPv6(BasePacket):
@@ -339,6 +354,10 @@ class IPv6(BasePacket):
 
     def __len__(self):
         return 40 + self.length
+
+    def swap(self):
+        self.destination, self.source = self.source, self.destination
+        self.payload.swap()
 
 
 
@@ -446,6 +465,10 @@ class TCP(BasePacket):
     def __len__(self):
         return (self.data_offset * 4) + len(self.payload)
 
+    def swap(self):
+        self.destination, self.source = self.source, self.destination
+
+
 @dataclass(init=False)
 class UDP(BasePacket):
     format: str = field(default='! 4H', init=False, repr=False)
@@ -498,3 +521,6 @@ class UDP(BasePacket):
 
     def __len__(self):
         return self.length
+
+    def swap(self):
+        self.destination, self.source = self.source, self.destination

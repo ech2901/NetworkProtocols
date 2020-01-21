@@ -1,14 +1,29 @@
-from ipaddress import ip_network
+from ipaddress import ip_network, ip_address
+from sched import scheduler
 from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
-from struct import unpack
+from threading import Thread
 
-from RawPacket import Ethernet, MAC_Address
+from RawPacket import Ethernet
 from Servers import RawServer
-from Servers.DHCP import Options
+from Servers.DHCP import Options, Packet
 
-BROADCAST_MAC = MAC_Address('FF:FF:FF:FF:FF:FF')
 
+class GarbageCollector(Thread):
+    def __init__(self):
+        super().__init__()
+        self.schedule = scheduler()
+        self.keep_alive = True
+
+    def run(self):
+        while self.keep_alive:
+            self.schedule.run()
+
+    def insert(self, delay, action, *args):
+        self.schedule.enter(delay, 1, action, args)
+
+    def shutdown(self):
+        self.keep_alive = False
 
 
 class DHCPHandler(BaseRequestHandler):
@@ -22,47 +37,56 @@ class DHCPHandler(BaseRequestHandler):
                 return
 
         self.is_dhcp = False
+        self.send_packet = False
 
     def handle(self):
         if(self.is_dhcp):
-            keys = ('op', 'htype', 'hlen', 'hops', 'xid', 'secs', 'flags', 'ciaddr',
-                    'yiaddr', 'siaddr', 'giaddr', 'chaddr')
-            values = unpack('! 4B L 2H 4L 6s 10x', self.udp['payload'][:44])
+            self.packet = Packet.DHCPPacket.disassemble(self.udp.payload)
 
-            self.dhcp_packet = dict()
-            for key, value in zip(keys, values):
-                self.dhcp_packet[key] = value
+            self.eth.swap()
+            self.eth.source = self.server.server_address[-1]
+            self.ip.source = self.server.server_ip
 
+            if (self.packet.op == 1):
+                self.handle_disco()
+            elif (self.packet.op == 3):
+                self.handle_req()
+            elif (self.packet.op == 4):
+                self.handle_decline()
+            elif (self.packet.op == 7):
+                self.handle_release()
+            elif (self.packet.op == 8):
+                self.handle_inform()
 
-            if(self.dhcp_packet['op'] == 2):
-                # Only handle DHCP request packets, not reply messages
-                return
+            if (self.send_packet):
+                self.udp.payload = self.packet
+                self.ip.payload = self.udp
+                self.eth.payload = self.ip
+                self.eth.calc_checksum()
+                self.request[1].send(self.eth.build())
 
-            checkup = 44
-            while(True):
-                if(self.udp['payload'][checkup:checkup+4] == b'\x63\x82\x53\x63'):
-                    # check for magic cookie to notify start of options.
-                    self.dhcp_packet['options'] = Options.unpack_options(self.udp['payload'][checkup+4:])
-                    break
-                elif(checkup == 44):
-                    # If sname isn't being used for option overload
-                    self.dhcp_packet['sname'] = unpack('! 64s', self.udp['payload'][44:108])
-                    checkup = 108
-                elif(checkup == 108):
-                    # If file isn't being used for option overload
-                    self.dhcp_packet['file'] = unpack('! 128s', self.udp['payload'][108:236])
-                    checkup = 236
-
-    def handle_discover(self):
+    def handle_disco(self):
         pass
 
-    def handle_request(self):
+    def handle_req(self):
         pass
 
+    def handle_decline(self):
+        pass
+
+    def handle_release(self):
+        pass
+
+    def handle_inform(self):
+        pass
 
 class DHCPServer(RawServer):
     server_port = 67
     client_port = 68
+
+    clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
+    offers = dict()  # Keys will be a tuple of (XID, MAC Address)
+    options = dict()  # Keys will be an int being the code of the option.
 
     def __init__(self, interface: str = 'eth0', **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
@@ -70,17 +94,9 @@ class DHCPServer(RawServer):
         self.pool = ip_network((kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0')))
         self.hosts = self.pool.hosts()  # used to better track used addresses to prevent race conditions.
 
+        self.server_ip = ip_address(kwargs.get('server_ip', self.get_host_addr()))
 
-    def verify_request(self, request, client_address):
-        """
-        Verify the request is for our MAC address or a broadcast MAC address
-        Return True if we should proceed with this request.
-        """
-
-        is_broadcast = request[1][-1] == BROADCAST_MAC
-        is_to_interface = request[1][-1] == self.server_address[-1]
-
-        return (is_broadcast or is_to_interface)
+        self.register(Options.BroadcastAddress(self.broadcast))
 
 
     @property
@@ -96,9 +112,13 @@ class DHCPServer(RawServer):
             return self.hosts.pop(0)
         return None  # If the number of available addresses gets exhausted return None
 
+    def clear_reservation(self, xid, address):
+        # clear short term reservation of ip address.
+        self.hosts.append(self.offers.pop((xid, address)))
 
+    def release_client(self, address, clientid):
+        # clear long term reservation of ip address.
+        self.hosts.append(self.offers.pop((address, clientid)))
 
-
-
-
-
+    def register(self, option):
+        self.options[option.code] = option
