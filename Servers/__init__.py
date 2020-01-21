@@ -1,3 +1,4 @@
+from socket import htons
 from socketserver import ThreadingTCPServer, ThreadingUDPServer, BaseServer, ThreadingMixIn
 from sys import platform
 from threading import Thread
@@ -61,7 +62,7 @@ if('linux' in platform):
 
         allow_reuse_address = False
 
-        max_packet_size = 8192
+        max_packet_size = 65536
 
         def __init__(self, interface, RequestHandlerClass, bind_and_activate=True, *, ethertype=0x0800):
             """Constructor.  May be extended, do not override."""
@@ -70,7 +71,7 @@ if('linux' in platform):
 
             self.socket = socket.socket(self.address_family,
                                         self.socket_type,
-                                        ethertype)
+                                        htons(ethertype))
             if bind_and_activate:
                 try:
                     self.server_bind()

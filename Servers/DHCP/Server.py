@@ -34,10 +34,10 @@ class DHCPHandler(BaseRequestHandler):
             self.udp = self.ip.payload
             if (self.udp.destination == self.server.server_port):
                 self.is_dhcp = True
+                self.send_packet = False
                 return
 
         self.is_dhcp = False
-        self.send_packet = False
 
     def handle(self):
         if(self.is_dhcp):
@@ -134,6 +134,7 @@ class DHCPServer(RawServer):
 
         self.server_ip = ip_address(kwargs.get('server_ip', self.get_host_addr()))
 
+        self.register(Options.Subnet(self.pool.netmask))
         self.register(Options.BroadcastAddress(self.broadcast))
 
         self.gb = GarbageCollector()
