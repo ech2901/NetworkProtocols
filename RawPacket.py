@@ -44,6 +44,9 @@ class MAC_Address(object):
         else:
             return self == MAC_Address(other)
 
+    def __hash__(self):
+        return hash(self._address)
+
 
 # --------------------------------------------------
 # Base Class(es)
