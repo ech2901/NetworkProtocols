@@ -14,28 +14,25 @@ class BaseOption(object):
         super().__init_subclass__(**kwargs)
         cls.classes[cls.code.default] = cls
 
-    def handle(self):
-        pass
-
     @classmethod
     def unpack(cls, data: bytes):
         out = []
         option_list = list(data)
 
-        while (len(data)):
+        while (len(option_list)):
             code = option_list.pop(0)
 
             if (code == 0 or code == 255):
-                out.append(cls.classes.default[code]())
+                out.append(cls.classes[code]())
                 continue
 
             length = option_list.pop(0)
-            data = b''.join([option_list.pop(0) for _ in range(length)])
+            data = bytes([option_list.pop(0) for _ in range(length)])
 
-            if (code in cls.classes.default):
-                out.append(cls.classes.default[code](data))
+            if (code in cls.classes):
+                out.append(cls.classes[code](data))
             else:
-                out.append(cls.classes.default[-1](code, length, data))
+                out.append(cls.classes[-1](code, length, data))
 
         return out
 
@@ -594,25 +591,40 @@ class ParameterRequestList(BaseOption):
 
 
 @dataclass(init=False)
-class IPLeaseTime(TimeOffset):
-    code: int = field(default=51)
+class Message(HostName):
+    code: int = field(default=56)
 
 
 @dataclass(init=False)
-class IPLeaseTime(TimeOffset):
-    code: int = field(default=51)
+class MaxDHCPMessageSize(BootFileSize):
+    code: int = field(default=57)
 
 
 @dataclass(init=False)
-class IPLeaseTime(TimeOffset):
-    code: int = field(default=51)
+class RenewalT1(TimeOffset):
+    code: int = field(default=58)
 
 
 @dataclass(init=False)
-class IPLeaseTime(TimeOffset):
-    code: int = field(default=51)
+class RenewalT2(TimeOffset):
+    code: int = field(default=59)
 
 
 @dataclass(init=False)
-class IPLeaseTime(TimeOffset):
-    code: int = field(default=51)
+class VendorClassID(HostName):
+    code: int = field(default=60)
+
+
+@dataclass(init=False)
+class ClientID(HostName):
+    code: int = field(default=61)
+
+
+@dataclass(init=False)
+class TFTPServerName(HostName):
+    code: int = field(default=66)
+
+
+@dataclass(init=False)
+class BootfileName(HostName):
+    code: int = field(default=67)
