@@ -9,23 +9,23 @@ from Servers.DHCP.Options import BaseOption
 
 @dataclass
 class DHCPPacket(object):
-    op: int
-    htype: int
-    hlen: int
-    hops: int
-    xid: int
-    secs: int
-    broadcast: bool
+    op: int = field(default=1)
+    htype: int = field(default=1)
+    hlen: int = field(default=6)
+    hops: int = field(default=0)
+    xid: int = field(default=0)
+    secs: int = field(default=0)
+    broadcast: bool = field(default=False)
     ciaddr: ip_address = field(init=False)
-    _ciaddr: InitVar
+    _ciaddr: InitVar = field(default=0)
     yiaddr: ip_address = field(init=False)
-    _yiaddr: InitVar
+    _yiaddr: InitVar = field(default=0)
     siaddr: ip_address = field(init=False)
-    _siaddr: InitVar
+    _siaddr: InitVar = field(default=0)
     giaddr: ip_address = field(init=False)
-    _giaddr: InitVar
+    _giaddr: InitVar = field(default=0)
     chaddr: MAC_Address = field(init=False)
-    _chaddr: InitVar
+    _chaddr: InitVar = field(default=0)
     sname: bytes = b''
     filename: bytes = b''
     options: List = field(default_factory=list)

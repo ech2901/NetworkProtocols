@@ -47,15 +47,23 @@ class DHCPHandler(BaseRequestHandler):
             self.eth.source = self.server.server_address[-1]
             self.ip.source = self.server.server_ip
 
-            if (self.packet.op == 1):
+            if (self.packet.ciaddr._ip):
+                # If client has a put a reachable IP address in this field
+                # Send to this specific address
+                self.ip.destination = self.packet.ciaddr
+
+            if self.packet.hops:
+                self.ip.destination = self.packet.giaddr
+
+            if (Options.DHCPMessageType(1) in self.packet.options):
                 self.handle_disco()
-            elif (self.packet.op == 3):
+            elif (Options.DHCPMessageType(3) in self.packet.options):
                 self.handle_req()
-            elif (self.packet.op == 4):
+            elif (Options.DHCPMessageType(4) in self.packet.options):
                 self.handle_decline()
-            elif (self.packet.op == 7):
+            elif (Options.DHCPMessageType(7) in self.packet.options):
                 self.handle_release()
-            elif (self.packet.op == 8):
+            elif (Options.DHCPMessageType(8) in self.packet.options):
                 self.handle_inform()
 
             if (self.send_packet):
@@ -66,10 +74,35 @@ class DHCPHandler(BaseRequestHandler):
                 self.request[1].send(self.eth.build())
 
     def handle_disco(self):
-        pass
+        return_options = list()
+        return_options.append(Options.DHCPMessageType(2))
+
+        self.packet.op = 2
+
+        self.packet.siaddr = self.server.server_ip
+
+        temp_yiaddr = self.server.get_host_addr()
+
+        temp_client_id = b''
+
+        for option in self.packet.options:
+            if (option.code == Options.ParameterRequestList.code):
+                for requested_option in option.data:
+                    if (requested_option in self.server.options):
+                        return_options.append(self.server.options[requested_option])
+            elif (option.code == Options.RequestedIP.code):
+                if (option.data in self.server.hosts):
+                    self.server.hosts.append(temp_yiaddr)
+                    self.server.hosts.remove(option.data)
+                    temp_yiaddr = option.data
+            elif (option.code == Options.ClientID.code):
+                temp_client_id = option.data
+
+        self.packet.yiaddr = temp_yiaddr
+        self.server.offers[(self.packet.xid, self.packet.chaddr)] = self.server.yiaddr
 
     def handle_req(self):
-        pass
+        print(self.packet.build())
 
     def handle_decline(self):
         pass
@@ -85,19 +118,20 @@ class DHCPServer(RawServer):
     client_port = 68
 
     clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
-    offers = dict()  # Keys will be a tuple of (XID, MAC Address)
+    offers = dict()  # Keys will be a tuple of (XID, MAC Address, ClientID). ClientID defaults to b''
     options = dict()  # Keys will be an int being the code of the option.
 
     def __init__(self, interface: str = 'eth0', **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
 
         self.pool = ip_network((kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0')))
-        self.hosts = self.pool.hosts()  # used to better track used addresses to prevent race conditions.
+        self.hosts = list(self.pool.hosts())  # used to better track used addresses to prevent race conditions.
 
         self.server_ip = ip_address(kwargs.get('server_ip', self.get_host_addr()))
 
         self.register(Options.BroadcastAddress(self.broadcast))
 
+        self.gb = GarbageCollector()
 
     @property
     def broadcast(self):
@@ -122,3 +156,11 @@ class DHCPServer(RawServer):
 
     def register(self, option):
         self.options[option.code] = option
+
+    def start(self):
+        self.gb.start()
+        super().start()
+
+    def shutdown(self):
+        self.gb.shutdown()
+        super().shutdown()
