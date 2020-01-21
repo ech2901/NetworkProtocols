@@ -99,15 +99,50 @@ class DHCPHandler(BaseRequestHandler):
                 temp_client_id = option.data
 
         self.packet.yiaddr = temp_yiaddr
-        self.server.offers[(self.packet.xid, self.packet.chaddr)] = (self.server.yiaddr, temp_client_id)
+        self.server.offers[(self.packet.xid, self.packet.chaddr)] = (self.packet.yiaddr, temp_client_id)
+
+        return_options.append(Options.End())
+
+        self.packet.options = return_options
+        self.send_packet = True
+        self.server.gb.insert(60, self.server.clear_reservation, self.packet.xid, self.packet.chaddr)
+
+    def handle_req(self):
+
+        return_options = list()
+        return_options.append(Options.DHCPMessageType(2))
+
+        self.packet.op = 2
+
+        self.packet.siaddr = self.server.server_ip
+
+        temp_yiaddr, temp_client_id = self.server.offers[(self.packet.xid, self.packet.chaddr)]
+
+        for option in self.packet.options:
+            if (option.code == Options.ParameterRequestList.code):
+                for requested_option in option.data:
+                    if (requested_option in self.server.options):
+                        return_options.append(self.server.options[requested_option])
+            elif (option.code == Options.RequestedIP.code):
+                if (option.data in self.server.hosts):
+                    self.server.hosts.append(temp_yiaddr)
+                    self.server.offers.remove((self.packet.xid, temp_client_id))
+                    temp_yiaddr = option.data
+            elif (option.code == Options.ClientID.code):
+                temp_client_id = option.data
+
+        self.packet.yiaddr = temp_yiaddr
 
         return_options.append(Options.End())
 
         self.packet.options = return_options
         self.send_packet = True
 
-    def handle_req(self):
-        print(self.packet.build())
+        self.server.clients[(self.packet.chaddr, temp_client_id)] = self.packet.yiaddr
+        self.server.gb.insert(self.server.get(Options.IPLeaseTime).data,
+                              self.server.release_reservation, self.packet.chaddr,
+                              temp_client_id
+                              )
 
     def handle_decline(self):
         pass
@@ -123,7 +158,7 @@ class DHCPServer(RawServer):
     client_port = 68
 
     clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
-    offers = dict()  # Keys will be a tuple of (XID, MAC Address, ClientID). ClientID defaults to b''
+    offers = dict()  # Keys will be a tuple of (XID, MAC Address).
     options = dict()  # Keys will be an int being the code of the option.
 
     def __init__(self, interface: str = 'eth0', **kwargs):
@@ -154,14 +189,20 @@ class DHCPServer(RawServer):
 
     def clear_reservation(self, xid, address):
         # clear short term reservation of ip address.
-        self.hosts.append(self.offers.pop((xid, address)))
+        if ((xid, address) in self.offers):
+            self.hosts.append(self.offers.pop((xid, address)))
 
     def release_client(self, address, clientid):
         # clear long term reservation of ip address.
-        self.hosts.append(self.offers.pop((address, clientid)))
+        if ((address, clientid) in self.clients):
+            self.hosts.append(self.clients.pop((address, clientid))[0])
 
     def register(self, option):
         self.options[option.code] = option
+
+    def get(self, option):
+        if (option.code in self.options):
+            return self.options[option.code]
 
     def start(self):
         self.gb.start()
