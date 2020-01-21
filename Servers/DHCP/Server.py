@@ -67,7 +67,7 @@ class DHCPHandler(BaseRequestHandler):
                 self.handle_inform()
 
             if (self.send_packet):
-                self.udp.payload = self.packet
+                self.udp.payload = self.packet.build()
                 self.ip.payload = self.udp
                 self.eth.payload = self.ip
                 self.eth.calc_checksum()
