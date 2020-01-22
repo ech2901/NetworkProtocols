@@ -105,7 +105,7 @@ class DHCPHandler(BaseRequestHandler):
 
         self.packet.options = return_options
         self.send_packet = True
-        self.server.gb.insert(60, self.server.clear_reservation, self.packet.xid, self.packet.chaddr)
+        self.server.gb.insert(60, self.server.release_offer, self.packet.xid, self.packet.chaddr)
 
     def handle_req(self):
 
@@ -140,7 +140,7 @@ class DHCPHandler(BaseRequestHandler):
 
         self.server.clients[(self.packet.chaddr, temp_client_id)] = self.packet.yiaddr
         self.server.gb.insert(self.server.get(Options.IPLeaseTime).data,
-                              self.server.release_reservation, self.packet.chaddr,
+                              self.server.release_client, self.packet.chaddr,
                               temp_client_id
                               )
 
@@ -187,7 +187,7 @@ class DHCPServer(RawServer):
             return self.hosts.pop(0)
         return None  # If the number of available addresses gets exhausted return None
 
-    def clear_reservation(self, xid, address):
+    def release_offer(self, xid, address):
         # clear short term reservation of ip address.
         if ((xid, address) in self.offers):
             self.hosts.append(self.offers.pop((xid, address)))
