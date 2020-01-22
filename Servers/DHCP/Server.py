@@ -110,7 +110,7 @@ class DHCPHandler(BaseRequestHandler):
     def handle_req(self):
 
         return_options = list()
-        return_options.append(Options.DHCPMessageType(2))
+        return_options.append(Options.DHCPMessageType(4))
 
         self.packet.op = 2
 
