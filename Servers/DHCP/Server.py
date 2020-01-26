@@ -60,7 +60,7 @@ class DHCPHandler(BaseRequestHandler):
 
                 # Building UDP Packet
 
-                udp = UDP(self.server.server_ip, self.udp.source, packet.build())
+                udp = UDP(self.server.server_port, self.server.client_port, packet.build())
 
                 # Building IP packet
 
@@ -146,7 +146,7 @@ class DHCPHandler(BaseRequestHandler):
 
         ack.siaddr = self.server.server_ip
         ack.yiaddr = self.server.get_host_addr(offer_ip)
-        self.server.gb.insert(self.server.get(Options.IPLeaseTime.code).data,
+        self.server.gb.insert(self.server.get(Options.IPLeaseTime).data,
                               self.server.release_client, ack.chaddr, client_hostname)
         self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
 
