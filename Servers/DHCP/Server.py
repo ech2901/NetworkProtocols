@@ -42,7 +42,7 @@ class DHCPHandler(BaseRequestHandler):
 
     def handle(self):
         if(self.is_dhcp):
-            
+
             packet = None
 
             if (Options.DHCPMessageType(1) in self.packet.options):
@@ -89,7 +89,7 @@ class DHCPHandler(BaseRequestHandler):
 
         offer = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source, broadcast=self.packet.broadcast)
         offer.options.append(Options.DHCPMessageType(2))
-        offer.options.extend(self.server.server_options)
+        offer.options.extend(self.server.server_options.values())
 
         client_hostname = b''
         offer_ip = None
@@ -124,7 +124,7 @@ class DHCPHandler(BaseRequestHandler):
 
         ack = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source, broadcast=self.packet.broadcast)
         ack.options.append(Options.DHCPMessageType(5))
-        ack.options.extend(self.server.server_options)
+        ack.options.extend(self.server.server_options.values())
 
         offer_ip, client_hostname = self.server.offers[(ack.chaddr, ack.xid)]
 
