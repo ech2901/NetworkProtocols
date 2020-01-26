@@ -21,7 +21,7 @@ class MAC_Address(object):
             self.address = ':'.join([hex(i)[2:].rjust(2, '0') for i in self.packed])
             self._address = int.from_bytes(address, 'big')
         elif (type(address) == str):
-            self.packed = pack('! 6B', [int(i, 16) for i in address.split(':')])
+            self.packed = pack('! 6B', *[int(i, 16) for i in address.split(':')])
             self.address = address
             self._address = int.from_bytes(self.packed, 'big')
         elif (type(address) == MAC_Address):

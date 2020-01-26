@@ -26,8 +26,8 @@ class DHCPPacket(object):
     _giaddr: InitVar = field(default=0)
     chaddr: MAC_Address = field(init=False)
     _chaddr: InitVar = field(default=0)
-    sname: bytes = b''
-    filename: bytes = b''
+    sname: bytes = bytes(64)
+    filename: bytes = bytes(128)
     options: List = field(default_factory=list)
 
     def __post_init__(self, _ciaddr, _yiaddr, _siaddr, _giaddr, _chaddr):
@@ -39,7 +39,7 @@ class DHCPPacket(object):
 
     def build(self):
         return pack(f'! 4B L 2H 4L {self.hlen}s {16 - self.hlen}x', self.op, self.htype, self.hlen,
-                    self.hops, self.xid, self.secs, self.broadcast << 16, self.ciaddr._ip,
+                    self.hops, self.xid, self.secs, self.broadcast << 15, self.ciaddr._ip,
                     self.yiaddr._ip, self.siaddr._ip, self.giaddr._ip, self.chaddr.packed,
                     ) + self.sname + self.filename + \
                b'\x63\x82\x53\x63' + b''.join([option.pack() for option in self.options])

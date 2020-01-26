@@ -4,7 +4,7 @@ from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
 from threading import Thread
 
-from RawPacket import Ethernet, IPv4, UDP
+from RawPacket import Ethernet, IPv4, UDP, MAC_Address
 from Servers import RawServer
 from Servers.DHCP import Options, Packet
 
@@ -80,6 +80,9 @@ class DHCPHandler(BaseRequestHandler):
 
                 eth = Ethernet(self.packet.chaddr, self.server.server_address[-1], ip)
 
+                if (self.server.broadcast):
+                    eth.destination = MAC_Address('FF:FF:FF:FF:FF:FF')
+
                 eth.calc_checksum()
                 self.request[1].send(eth.build())
 
@@ -87,7 +90,8 @@ class DHCPHandler(BaseRequestHandler):
     def handle_disco(self):
         # Building DHCP offer Packet
 
-        offer = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source, broadcast=self.packet.broadcast)
+        offer = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source,
+                                  broadcast=self.packet.broadcast or self.server.broadcast)
         offer.options.append(Options.DHCPMessageType(2))
         offer.options.extend(self.server.server_options.values())
 
@@ -122,7 +126,8 @@ class DHCPHandler(BaseRequestHandler):
 
         # Building DHCP acknowledge Packet
 
-        ack = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source, broadcast=self.packet.broadcast)
+        ack = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source,
+                                broadcast=self.packet.broadcast or self.server.broadcast)
         ack.options.append(Options.DHCPMessageType(5))
         ack.options.extend(self.server.server_options.values())
 
@@ -141,6 +146,10 @@ class DHCPHandler(BaseRequestHandler):
 
             if (option.code == Options.HostName.code):
                 client_hostname = option.data
+
+            if (option.code == Options.DHCPServerID.code):
+                if option.data != self.server.server_ip:
+                    return None
 
         ack.options.append(Options.End())
 
@@ -172,11 +181,13 @@ class DHCPServer(RawServer):
     server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
 
-    def __init__(self, interface: str = 'eth0', **kwargs):
+    def __init__(self, interface: str = 'eth0', broadcast=False, **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
 
         self.pool = ip_network((kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0')))
         self.hosts = list(self.pool.hosts())  # used to better track used addresses to prevent race conditions.
+
+        self.broadcast = broadcast
 
         if ('server_ip' in kwargs):
             self.server_ip = self.get_host_addr(ip_address(kwargs['server_ip']))
