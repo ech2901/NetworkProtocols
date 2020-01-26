@@ -4,7 +4,7 @@ from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
 from threading import Thread
 
-from RawPacket import Ethernet
+from RawPacket import Ethernet, IPv4, UDP
 from Servers import RawServer
 from Servers.DHCP import Options, Packet
 
@@ -35,114 +35,122 @@ class DHCPHandler(BaseRequestHandler):
             if (self.udp.destination == self.server.server_port):
                 self.is_dhcp = True
                 self.send_packet = False
+                self.packet = Packet.DHCPPacket.disassemble(self.udp.payload)
                 return
 
         self.is_dhcp = False
 
     def handle(self):
         if(self.is_dhcp):
-            self.packet = Packet.DHCPPacket.disassemble(self.udp.payload)
-
-            self.eth.swap()
-            self.eth.source = self.server.server_address[-1]
-            self.ip.source = self.server.server_ip
-
-            if (self.packet.ciaddr._ip):
-                # If client has a put a reachable IP address in this field
-                # Send to this specific address
-                self.ip.destination = self.packet.ciaddr
-
-            if self.packet.hops:
-                self.ip.destination = self.packet.giaddr
+            
+            packet = None
 
             if (Options.DHCPMessageType(1) in self.packet.options):
-                self.handle_disco()
+                packet = self.handle_disco()
             elif (Options.DHCPMessageType(3) in self.packet.options):
-                self.handle_req()
+                packet = self.handle_req()
             elif (Options.DHCPMessageType(4) in self.packet.options):
-                self.handle_decline()
+                packet = self.handle_decline()
             elif (Options.DHCPMessageType(7) in self.packet.options):
-                self.handle_release()
+                packet = self.handle_release()
             elif (Options.DHCPMessageType(8) in self.packet.options):
-                self.handle_inform()
+                packet = self.handle_inform()
 
-            if (self.send_packet):
-                self.udp.payload = self.packet.build()
-                self.ip.payload = self.udp
-                self.eth.payload = self.ip
-                self.eth.calc_checksum()
-                self.request[1].send(self.eth.build())
+            if (packet):
+
+                # Building UDP Packet
+
+                udp = UDP(self.server.server_ip, self.udp.source, packet.build())
+
+                # Building IP packet
+
+                ip = IPv4(self.server.server_ip, ip_address('255.255.255.255'), udp)
+
+                if (self.packet.hops):
+                    packet.hops = self.packet.hops
+                    packet.giaddr = self.packet.giaddr
+                    ip.destination = packet.giaddr
+
+                elif (self.packet.ciaddr._ip):
+                    # If client has a put a reachable IP address in this field
+                    # Send to this specific address
+                    ip.destination = self.packet.ciaddr
+
+                # Building Ethernet packet
+
+                eth = Ethernet(self.packet.chaddr, self.server.server_address[-1], ip)
+
+                eth.calc_checksum()
+                self.request[1].send(eth.build())
+
 
     def handle_disco(self):
-        return_options = list()
-        return_options.append(Options.DHCPMessageType(2))
+        # Building DHCP offer Packet
 
-        self.packet.op = 2
+        offer = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source, broadcast=self.packet.broadcast)
+        offer.options.append(Options.DHCPMessageType(2))
+        offer.options.extend(self.server.server_options)
 
-        self.packet.siaddr = self.server.server_ip
-
-        temp_yiaddr = self.server.get_host_addr()
-
-        temp_client_id = b''
+        client_hostname = b''
+        offer_ip = None
 
         for option in self.packet.options:
             if (option.code == Options.ParameterRequestList.code):
-                for requested_option in option.data:
-                    if (requested_option in self.server.options):
-                        return_options.append(self.server.options[requested_option])
-            elif (option.code == Options.RequestedIP.code):
-                if (option.data in self.server.hosts):
-                    self.server.hosts.append(temp_yiaddr)
-                    self.server.hosts.remove(option.data)
-                    temp_yiaddr = option.data
-            elif (option.code == Options.ClientID.code):
-                temp_client_id = option.data
+                for code in option.data:
+                    if code in self.server.options:
+                        offer.options.append(self.server.options[code])
 
-        self.packet.yiaddr = temp_yiaddr
-        self.server.offers[(self.packet.xid, self.packet.chaddr)] = (self.packet.yiaddr, temp_client_id)
+            if (option.code == Options.RequestedIP.code):
+                if (ip_address(option.data) in self.server.hosts):
+                    offer_ip = option.data
 
-        return_options.append(Options.End())
+            if (option.code == Options.HostName.code):
+                client_hostname = option.data
 
-        self.packet.options = return_options
-        self.send_packet = True
-        self.server.gb.insert(60, self.server.release_offer, self.packet.xid, self.packet.chaddr)
+        offer.options.append(Options.End())
+
+        offer.siaddr = self.server.server_ip
+        offer.yiaddr = self.server.get_host_addr(offer_ip)
+
+        self.server.gb.insert(60, self.server.release_offer, offer.chaddr, offer.xid)
+        self.server.register_offer(offer.chaddr, offer.xid, offer.yiaddr, client_hostname)
+
+        return offer
+
 
     def handle_req(self):
 
-        return_options = list()
-        return_options.append(Options.DHCPMessageType(4))
+        # Building DHCP acknowledge Packet
 
-        self.packet.op = 2
+        ack = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source, broadcast=self.packet.broadcast)
+        ack.options.append(Options.DHCPMessageType(5))
+        ack.options.extend(self.server.server_options)
 
-        self.packet.siaddr = self.server.server_ip
+        offer_ip, client_hostname = self.server.offers[(ack.chaddr, ack.xid)]
 
-        temp_yiaddr, temp_client_id = self.server.offers[(self.packet.xid, self.packet.chaddr)]
 
         for option in self.packet.options:
             if (option.code == Options.ParameterRequestList.code):
-                for requested_option in option.data:
-                    if (requested_option in self.server.options):
-                        return_options.append(self.server.options[requested_option])
-            elif (option.code == Options.RequestedIP.code):
-                if (option.data in self.server.hosts):
-                    self.server.hosts.append(temp_yiaddr)
-                    self.server.offers.remove((self.packet.xid, temp_client_id))
-                    temp_yiaddr = option.data
-            elif (option.code == Options.ClientID.code):
-                temp_client_id = option.data
+                for code in option.data:
+                    if code in self.server.options:
+                        ack.options.append(self.server.options[code])
 
-        self.packet.yiaddr = temp_yiaddr
+            if (option.code == Options.RequestedIP.code):
+                if (ip_address(option.data) in self.server.hosts):
+                    offer_ip = option.data
 
-        return_options.append(Options.End())
+            if (option.code == Options.HostName.code):
+                client_hostname = option.data
 
-        self.packet.options = return_options
-        self.send_packet = True
+        ack.options.append(Options.End())
 
-        self.server.clients[(self.packet.chaddr, temp_client_id)] = self.packet.yiaddr
-        self.server.gb.insert(self.server.get(Options.IPLeaseTime).data,
-                              self.server.release_client, self.packet.chaddr,
-                              temp_client_id
-                              )
+        ack.siaddr = self.server.server_ip
+        ack.yiaddr = self.server.get_host_addr(offer_ip)
+        self.server.gb.insert(self.server.get(Options.IPLeaseTime.code).data,
+                              self.server.release_client, ack.chaddr, client_hostname)
+        self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
+
+        return ack
 
     def handle_decline(self):
         pass
@@ -153,12 +161,15 @@ class DHCPHandler(BaseRequestHandler):
     def handle_inform(self):
         pass
 
+
 class DHCPServer(RawServer):
     server_port = 67
     client_port = 68
 
     clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
     offers = dict()  # Keys will be a tuple of (XID, MAC Address).
+
+    server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
 
     def __init__(self, interface: str = 'eth0', **kwargs):
@@ -167,10 +178,23 @@ class DHCPServer(RawServer):
         self.pool = ip_network((kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0')))
         self.hosts = list(self.pool.hosts())  # used to better track used addresses to prevent race conditions.
 
-        self.server_ip = ip_address(kwargs.get('server_ip', self.get_host_addr()))
+        if ('server_ip' in kwargs):
+            self.server_ip = self.get_host_addr(ip_address(kwargs['server_ip']))
+        else:
+            self.server_ip = self.get_host_addr()
 
-        self.register(Options.Subnet(self.pool.netmask))
-        self.register(Options.BroadcastAddress(self.broadcast))
+        self.register_server_option(Options.Subnet(self.pool.netmask))
+        self.register_server_option(Options.BroadcastAddress(self.broadcast))
+        self.register_server_option(Options.DHCPServerID(self.server_ip))
+
+        # Default lease time of 8 days
+        self.register_server_option(Options.IPLeaseTime(60 * 60 * 24 * 8))
+
+        # Default renew time of 4 days
+        self.register_server_option(Options.RenewalT1(60 * 60 * 24 * 4))
+
+        # Default rebind time of 3 days
+        self.register_server_option(Options.RenewalT2(60 * 60 * 24 * 3))
 
         self.gb = GarbageCollector()
 
@@ -182,20 +206,40 @@ class DHCPServer(RawServer):
     def network(self):
         return self.pool.network_address
 
-    def get_host_addr(self):
-        if(len(self.hosts)):
-            return self.hosts.pop(0)
-        return None  # If the number of available addresses gets exhausted return None
+    def get_host_addr(self, requested_ip=None):
+        try:
+            # Try to remove object from self.hosts
+            self.hosts.remove(requested_ip)
+            return requested_ip
 
-    def release_offer(self, xid, address):
+        except ValueError:
+            # ValueError will be raised if trying to remove
+            # item from self.hosts that does not exists.
+            try:
+                return self.hosts.pop(0)
+
+            except IndexError:
+                # If the number of available addresses gets exhausted return None
+                return None
+
+    def register_offer(self, address, xid, offer_ip, client_hostname):
+        self.offers[(address, xid)] = (offer_ip, client_hostname)
+
+    def release_offer(self, address, xid):
         # clear short term reservation of ip address.
-        if ((xid, address) in self.offers):
-            self.hosts.append(self.offers.pop((xid, address)))
+        if ((address, xid) in self.offers):
+            self.hosts.append(self.offers.pop((address, xid)))
+
+    def register_client(self, address, clientid, client_ip):
+        self.clients[(address, clientid)] = client_ip
 
     def release_client(self, address, clientid):
         # clear long term reservation of ip address.
         if ((address, clientid) in self.clients):
             self.hosts.append(self.clients.pop((address, clientid))[0])
+
+    def register_server_option(self, option):
+        self.server_options[option.code] = option
 
     def register(self, option):
         self.options[option.code] = option

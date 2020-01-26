@@ -560,7 +560,7 @@ class DHCPMessageType(DefaultTTL):
 
 
 @dataclass(init=False)
-class ServerID(TimeOffset):
+class DHCPServerID(Subnet):
     code: int = field(default=54)
 
 

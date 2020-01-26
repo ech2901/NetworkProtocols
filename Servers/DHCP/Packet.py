@@ -76,4 +76,4 @@ class DHCPPacket(object):
         return cls(**out)
 
     def __len__(self):
-        pass
+        return len(self.build())
