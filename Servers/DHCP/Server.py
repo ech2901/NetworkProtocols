@@ -248,6 +248,9 @@ class DHCPServer(RawServer):
         if (option.code in self.options):
             return self.options[option.code]
 
+        elif (option.code in self.server_options):
+            return self.server_options[option.code]
+
     def start(self):
         self.gb.start()
         super().start()
