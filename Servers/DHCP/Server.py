@@ -1,3 +1,4 @@
+from configparser import ConfigParser
 from ipaddress import ip_network, ip_address
 from sched import scheduler
 from socket import IPPROTO_UDP
@@ -7,6 +8,9 @@ from threading import Thread
 from RawPacket import Ethernet, IPv4, UDP, MAC_Address
 from Servers import RawServer
 from Servers.DHCP import Options, Packet
+
+defaults = ConfigParser()
+defaults.read(r'Servers/DHCP/config.ini')
 
 
 class GarbageCollector(Thread):
@@ -235,29 +239,30 @@ class DHCPServer(RawServer):
     server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
 
-    def __init__(self, server_ip, interface: str = 'eth0', broadcast=False, **kwargs):
+    def __init__(self, interface=defaults.get('optional', 'interface'), **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
 
         # Server addressing information
 
-        self.server_ip = ip_address(server_ip)
-        self.server_port = kwargs.get('server_port', 67)
-        self.client_port = kwargs.get('client_port', 68)
+        self.server_ip = ip_address(kwargs.get('server_ip', defaults.get('ip addresses', 'server_ip')))
+        self.server_port = kwargs.get('server_port', defaults.get('numbers', 'server_port'))
+        self.client_port = kwargs.get('client_port', defaults.get('numbers', 'client_port'))
 
         # Server IP pool setup
 
-        self.pool = Pool(kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0'))
+        self.pool = Pool(kwargs.get('network', defaults.get('ip addresses', 'network')),
+                         kwargs.get('mask', defaults.get('ip addresses', 'mask')))
         self.pool.reserve(self.mac_address, self.server_ip)
-        self.broadcast = broadcast
+        self.broadcast = kwargs.get('broadcast', defaults.get('optional', 'broadcast'))
 
         # Timing information
-        self.offer_hold_time = kwargs.get('offer_hold_time', 60)
+        self.offer_hold_time = kwargs.get('offer_hold_time', defaults.get('numbers', 'offer_hold_time'))
         # Default lease time of 8 days
-        IPLeaseTime = kwargs.get('ipleasetime', 60 * 60 * 24 * 8)
+        IPLeaseTime = kwargs.get('ipleasetime', defaults.get('numbers', 'ipleasetime'))
         # Default renew time of 4 days
-        RenewalT1 = kwargs.get('renewalt1', 60 * 60 * 24 * 4)
+        RenewalT1 = kwargs.get('renewalt1', defaults.get('numbers', 'renewalt1'))
         # Default rebind time of 3 days
-        RenewalT2 = kwargs.get('renewalt2', 60 * 60 * 24 * 3)
+        RenewalT2 = kwargs.get('renewalt2', defaults.get('numbers', 'renewalt1'))
 
 
 
