@@ -248,7 +248,6 @@ class DHCPServer(RawServer):
         else:
             self.server_ip = self.pool.get_ip(None)
 
-        self.server_ip = kwargs.get('server_ip', None)
         self.pool.reserve(self.mac_address, self.server_ip)
 
         self.broadcast = broadcast
