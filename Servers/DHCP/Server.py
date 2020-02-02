@@ -29,7 +29,7 @@ class GarbageCollector(Thread):
 class Pool(object):
     def __init__(self, network='192.168.0.0', mask='255.255.255.0'):
         self._network = ip_network(fr'{network}/{mask}')
-        self.hosts = list(self.network.hosts())
+        self.hosts = list(self._network.hosts())
         self.reservations = dict()
 
     def reserve(self, mac, ip):
@@ -243,7 +243,12 @@ class DHCPServer(RawServer):
 
         self.pool = Pool(kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0'))
 
-        self.server_ip = kwargs.get('server_ip', self.pool.get_ip(None))
+        if 'server_ip' in kwargs:
+            self.server_ip = ip_address(kwargs.get('server_ip'))
+        else:
+            self.server_ip = self.pool.get_ip(None)
+
+        self.server_ip = kwargs.get('server_ip', None)
         self.pool.reserve(self.mac_address, self.server_ip)
 
         self.broadcast = broadcast
