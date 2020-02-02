@@ -3,8 +3,8 @@ from configparser import ConfigParser
 from ipaddress import ip_address
 from socket import socket, SOCK_DGRAM, AF_INET
 
-from Servers.DHCP import Options
-from Servers.DHCP.Server import DHCPServer
+import Options
+from Server import DHCPServer
 
 config = ConfigParser()
 config.read(r'Servers/DHCP/config.ini')
