@@ -245,24 +245,24 @@ class DHCPServer(RawServer):
         # Server addressing information
 
         self.server_ip = ip_address(kwargs.get('server_ip', defaults.get('ip addresses', 'server_ip')))
-        self.server_port = kwargs.get('server_port', defaults.get('numbers', 'server_port'))
-        self.client_port = kwargs.get('client_port', defaults.get('numbers', 'client_port'))
+        self.server_port = kwargs.get('server_port', defaults.getint('numbers', 'server_port'))
+        self.client_port = kwargs.get('client_port', defaults.getint('numbers', 'client_port'))
 
         # Server IP pool setup
 
         self.pool = Pool(kwargs.get('network', defaults.get('ip addresses', 'network')),
                          kwargs.get('mask', defaults.get('ip addresses', 'mask')))
         self.pool.reserve(self.mac_address, self.server_ip)
-        self.broadcast = kwargs.get('broadcast', defaults.get('optional', 'broadcast'))
+        self.broadcast = kwargs.get('broadcast', defaults.getboolean('optional', 'broadcast'))
 
         # Timing information
-        self.offer_hold_time = kwargs.get('offer_hold_time', defaults.get('numbers', 'offer_hold_time'))
+        self.offer_hold_time = kwargs.get('offer_hold_time', defaults.getint('numbers', 'offer_hold_time'))
         # Default lease time of 8 days
-        IPLeaseTime = kwargs.get('ipleasetime', defaults.get('numbers', 'ipleasetime'))
+        IPLeaseTime = kwargs.get('ipleasetime', defaults.getint('numbers', 'ipleasetime'))
         # Default renew time of 4 days
-        RenewalT1 = kwargs.get('renewalt1', defaults.get('numbers', 'renewalt1'))
+        RenewalT1 = kwargs.get('renewalt1', defaults.getint('numbers', 'renewalt1'))
         # Default rebind time of 3 days
-        RenewalT2 = kwargs.get('renewalt2', defaults.get('numbers', 'renewalt1'))
+        RenewalT2 = kwargs.get('renewalt2', defaults.getint('numbers', 'renewalt2'))
 
 
 
