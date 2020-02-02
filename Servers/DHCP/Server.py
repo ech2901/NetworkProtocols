@@ -250,7 +250,7 @@ class DHCPServer(RawServer):
 
         # Server IP pool setup
 
-        self.pool = Pool(kwargs.get('network', defaults.getint('ip addresses', 'network')),
+        self.pool = Pool(kwargs.get('network', defaults.get('ip addresses', 'network')),
                          kwargs.get('mask', defaults.get('ip addresses', 'mask')))
         self.pool.reserve(self.mac_address, self.server_ip)
         self.broadcast = kwargs.get('broadcast', defaults.getboolean('optional', 'broadcast'))
