@@ -262,7 +262,7 @@ class DHCPServer(RawServer):
         # Default renew time of 4 days
         RenewalT1 = kwargs.get('renewalt1', defaults.get('numbers', 'renewalt1'))
         # Default rebind time of 3 days
-        RenewalT2 = kwargs.get('renewalt2', defaults.get('numbers', 'renewalt1'))
+        RenewalT2 = kwargs.get('renewalt2', defaults.get('numbers', 'renewalt2'))
 
 
 
