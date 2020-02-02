@@ -227,8 +227,6 @@ class DHCPHandler(BaseRequestHandler):
 
 
 class DHCPServer(RawServer):
-    server_port = 67
-    client_port = 68
 
     clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
     offers = dict()  # Keys will be a tuple of (MAC Address, XID).
@@ -236,34 +234,39 @@ class DHCPServer(RawServer):
     server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
 
-    offer_hold_time = 60
-
-    def __init__(self, interface: str = 'eth0', broadcast=False, **kwargs):
+    def __init__(self, server_ip, interface: str = 'eth0', broadcast=False, **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
 
+        # Server addressing information
+
+        self.server_ip = ip_address(server_ip)
+        self.server_port = kwargs.get('server_port', 67)
+        self.client_port = kwargs.get('client_port', 68)
+
+        # Server IP pool setup
+
         self.pool = Pool(kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0'))
-
-        if 'server_ip' in kwargs:
-            self.server_ip = ip_address(kwargs.get('server_ip'))
-        else:
-            self.server_ip = self.pool.get_ip(None)
-
         self.pool.reserve(self.mac_address, self.server_ip)
-
         self.broadcast = broadcast
+
+        # Timing information
+        self.offer_hold_time = kwargs.get('offer_hold_time', 60)
+        # Default lease time of 8 days
+        IPLeaseTime = kwargs.get('ipleasetime', 60 * 60 * 24 * 8)
+        # Default renew time of 4 days
+        RenewalT1 = kwargs.get('renewalt1', 60 * 60 * 24 * 4)
+        # Default rebind time of 3 days
+        RenewalT2 = kwargs.get('renewalt2', 60 * 60 * 24 * 3)
+
+
 
         self.register_server_option(Options.Subnet(self.pool.netmask))
         self.register_server_option(Options.BroadcastAddress(self.pool.broadcast))
         self.register_server_option(Options.DHCPServerID(self.server_ip))
 
-        # Default lease time of 8 days
-        self.register_server_option(Options.IPLeaseTime(60 * 60 * 24 * 8))
-
-        # Default renew time of 4 days
-        self.register_server_option(Options.RenewalT1(60 * 60 * 24 * 4))
-
-        # Default rebind time of 3 days
-        self.register_server_option(Options.RenewalT2(60 * 60 * 24 * 3))
+        self.register_server_option(Options.IPLeaseTime(IPLeaseTime))
+        self.register_server_option(Options.RenewalT1(RenewalT1))
+        self.register_server_option(Options.RenewalT2(RenewalT2))
 
         self.gb = GarbageCollector()
 
@@ -293,8 +296,10 @@ class DHCPServer(RawServer):
         try:
             if option.data in self.pool.network:
                 self.pool.reserve(option.code, option.data)
+            else:
+
         except:
-            # option data isn't an IPAddress
+            # option data isn't an IP Address
             pass
 
     def register(self, option):
@@ -305,7 +310,7 @@ class DHCPServer(RawServer):
             if option.data in self.pool.network:
                 self.pool.reserve(option.code, option.data)
         except:
-            # option data isn't an IPAddress
+            # option data isn't an IP Address
             pass
 
     def get(self, option):
