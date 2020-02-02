@@ -96,6 +96,7 @@ if('linux' in platform):
             self.socket.bind(self.server_address)
             server_address = self.socket.getsockname()
             self.server_address = (*server_address[:-1], MAC_Address(server_address[-1]))
+            self.mac_address = self.server_address[-1]
 
         def server_activate(self):
             # No need to call listen() for UDP.
@@ -136,5 +137,7 @@ if('linux' in platform):
 
             :return: None
             """
+
             BaseServer.shutdown(self)
             Thread.join(self)
+            self.socket.close()

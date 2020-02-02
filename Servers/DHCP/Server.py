@@ -26,6 +26,67 @@ class GarbageCollector(Thread):
         self.keep_alive = False
 
 
+class Pool(object):
+    def __init__(self, network='192.168.0.0', mask='255.255.255.0'):
+        self._network = ip_network(fr'{network}/{mask}')
+        self.hosts = list(self.network.hosts())
+        self.reservations = dict()
+
+    def reserve(self, mac, ip):
+        try:
+            self.hosts.remove(ip)
+            self.reservations[mac] = ip
+        except ValueError:
+            print(f'IP {ip} not in network {self._network}')
+
+    def unreserve(self, mac):
+        self.reservations.pop(mac, None)
+
+    def is_reserved(self, mac):
+        return mac in self.reservations
+
+    def get_ip(self, mac, requested_ip=None):
+        try:
+            # Try to remove object from the reservations
+            return self.reservations[mac]
+
+        except KeyError:
+            # KeyError will be raised if trying to get
+            # a reservation that does not exists.
+            try:
+                self.hosts.remove(requested_ip)
+                return requested_ip
+
+            except ValueError:
+                # ValueError will be raised if trying to get
+                # an IP address that does not exists in our pool of hosts.
+                try:
+                    return self.hosts.pop(0)
+
+                except IndexError:
+                    # If the number of available addresses gets exhausted return None
+                    return None
+
+    def add_ip(self, ip):
+        if ip in self._network:
+            self.hosts.insert(0, ip)
+
+    @property
+    def broadcast(self):
+        return self._network.broadcast_address
+
+    @property
+    def netmask(self):
+        return self._network.netmask
+
+    @property
+    def network(self):
+        return self._network.network_address
+
+    def __contains__(self, item):
+        return item in self.hosts
+
+
 class DHCPHandler(BaseRequestHandler):
     def setup(self):
         self.eth = Ethernet.disassemble(self.request[0])
@@ -86,7 +147,6 @@ class DHCPHandler(BaseRequestHandler):
                 eth.calc_checksum()
                 self.request[1].send(eth.build())
 
-
     def handle_disco(self):
         # Building DHCP offer Packet
 
@@ -105,8 +165,7 @@ class DHCPHandler(BaseRequestHandler):
                         offer.options.append(self.server.options[code])
 
             if (option.code == Options.RequestedIP.code):
-                if (ip_address(option.data) in self.server.hosts):
-                    offer_ip = option.data
+                offer_ip = option.data
 
             if (option.code == Options.HostName.code):
                 client_hostname = option.data
@@ -114,13 +173,11 @@ class DHCPHandler(BaseRequestHandler):
         offer.options.append(Options.End())
 
         offer.siaddr = self.server.server_ip
-        offer.yiaddr = self.server.get_host_addr(offer_ip)
+        offer.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
 
-        self.server.gb.insert(60, self.server.release_offer, offer.chaddr, offer.xid)
         self.server.register_offer(offer.chaddr, offer.xid, offer.yiaddr, client_hostname)
 
         return offer
-
 
     def handle_req(self):
 
@@ -141,8 +198,7 @@ class DHCPHandler(BaseRequestHandler):
                         ack.options.append(self.server.options[code])
 
             if (option.code == Options.RequestedIP.code):
-                if (ip_address(option.data) in self.server.hosts):
-                    offer_ip = option.data
+                offer_ip = option.data
 
             if (option.code == Options.HostName.code):
                 client_hostname = option.data
@@ -154,9 +210,8 @@ class DHCPHandler(BaseRequestHandler):
         ack.options.append(Options.End())
 
         ack.siaddr = self.server.server_ip
-        ack.yiaddr = self.server.get_host_addr(offer_ip)
-        self.server.gb.insert(self.server.get(Options.IPLeaseTime).data,
-                              self.server.release_client, ack.chaddr, client_hostname)
+        ack.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
+
         self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
 
         return ack
@@ -176,26 +231,25 @@ class DHCPServer(RawServer):
     client_port = 68
 
     clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
-    offers = dict()  # Keys will be a tuple of (XID, MAC Address).
+    offers = dict()  # Keys will be a tuple of (MAC Address, XID).
 
     server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
 
+    offer_hold_time = 60
+
     def __init__(self, interface: str = 'eth0', broadcast=False, **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
 
-        self.pool = ip_network((kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0')))
-        self.hosts = list(self.pool.hosts())  # used to better track used addresses to prevent race conditions.
+        self.pool = Pool(kwargs.get('network', '192.168.0.0'), kwargs.get('mask', '255.255.255.0'))
+
+        self.server_ip = kwargs.get('server_ip', self.pool.get_ip(None))
+        self.pool.reserve(self.mac_address, self.server_ip)
 
         self.broadcast = broadcast
 
-        if ('server_ip' in kwargs):
-            self.server_ip = self.get_host_addr(ip_address(kwargs['server_ip']))
-        else:
-            self.server_ip = self.get_host_addr()
-
         self.register_server_option(Options.Subnet(self.pool.netmask))
-        self.register_server_option(Options.BroadcastAddress(self.broadcast))
+        self.register_server_option(Options.BroadcastAddress(self.pool.broadcast))
         self.register_server_option(Options.DHCPServerID(self.server_ip))
 
         # Default lease time of 8 days
@@ -209,51 +263,46 @@ class DHCPServer(RawServer):
 
         self.gb = GarbageCollector()
 
-    @property
-    def broadcast(self):
-        return self.pool.broadcast_address
-
-    @property
-    def network(self):
-        return self.pool.network_address
-
-    def get_host_addr(self, requested_ip=None):
-        try:
-            # Try to remove object from self.hosts
-            self.hosts.remove(requested_ip)
-            return requested_ip
-
-        except ValueError:
-            # ValueError will be raised if trying to remove
-            # item from self.hosts that does not exists.
-            try:
-                return self.hosts.pop(0)
-
-            except IndexError:
-                # If the number of available addresses gets exhausted return None
-                return None
 
     def register_offer(self, address, xid, offer_ip, client_hostname):
         self.offers[(address, xid)] = (offer_ip, client_hostname)
+        self.gb.insert(self.offer_hold_time, self.release_offer, address, xid)
 
     def release_offer(self, address, xid):
         # clear short term reservation of ip address.
         if ((address, xid) in self.offers):
-            self.hosts.append(self.offers.pop((address, xid)))
+            self.pool.add_ip(self.offers.pop((address, xid))[0])
 
     def register_client(self, address, clientid, client_ip):
         self.clients[(address, clientid)] = client_ip
+        self.gb.insert(self.get(Options.IPLeaseTime).data, self.release_client, address, clientid)
 
     def release_client(self, address, clientid):
         # clear long term reservation of ip address.
         if ((address, clientid) in self.clients):
-            self.hosts.append(self.clients.pop((address, clientid))[0])
+            self.pool.add_ip(self.clients.pop((address, clientid)))
 
     def register_server_option(self, option):
+        # These options always are included in server DHCP packets
         self.server_options[option.code] = option
 
+        try:
+            if option.data in self.pool.network:
+                self.pool.reserve(option.code, option.data)
+        except:
+            # option data isn't an IPAddress
+            pass
+
     def register(self, option):
+        # These options are included in server DHCP packets by request of client
         self.options[option.code] = option
+
+        try:
+            if option.data in self.pool.network:
+                self.pool.reserve(option.code, option.data)
+        except:
+            # option data isn't an IPAddress
+            pass
 
     def get(self, option):
         if (option.code in self.options):
@@ -267,5 +316,12 @@ class DHCPServer(RawServer):
         super().start()
 
     def shutdown(self):
+
         self.gb.shutdown()
         super().shutdown()
+
+    def __enter__(self):
+        self.start()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
