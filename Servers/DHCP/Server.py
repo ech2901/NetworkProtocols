@@ -301,15 +301,15 @@ class DHCPServer(RawServer):
 
         try:
             try:
-                if option.data in self.pool.network:
+                if option.data in self.pool._network:
                     # If option data is an ip address, reserve it
                     self.pool.reserve(option.code, option.data)
-            except:
+            except AttributeError:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
                 # reserve it
                 for index, addr in enumerate(option.data, start=1):
-                    if addr not in self.pool.network:
+                    if addr not in self.pool._network:
                         continue
                     self.pool.reserve(f'{option.code}-{index}', addr)
 
@@ -323,15 +323,15 @@ class DHCPServer(RawServer):
 
         try:
             try:
-                if option.data in self.pool.network:
+                if option.data in self.pool._network:
                     # If option data is an ip address, reserve it
                     self.pool.reserve(option.code, option.data)
-            except:
+            except AttributeError:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
                 # reserve it
                 for index, addr in enumerate(option.data, start=1):
-                    if addr not in self.pool.network:
+                    if addr not in self.pool._network:
                         continue
                     self.pool.reserve(f'{option.code}-{index}', addr)
 
