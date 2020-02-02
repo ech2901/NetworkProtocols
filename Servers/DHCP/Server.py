@@ -300,10 +300,11 @@ class DHCPServer(RawServer):
         self.server_options[option.code] = option
 
         try:
-            if option.data in self.pool.network:
-                # If option data is an ip address, reserve it
-                self.pool.reserve(option.code, option.data)
-            else:
+            try:
+                if option.data in self.pool.network:
+                    # If option data is an ip address, reserve it
+                    self.pool.reserve(option.code, option.data)
+            except:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
                 # reserve it
@@ -321,10 +322,11 @@ class DHCPServer(RawServer):
         self.options[option.code] = option
 
         try:
-            if option.data in self.pool.network:
-                # If option data is an ip address, reserve it
-                self.pool.reserve(option.code, option.data)
-            else:
+            try:
+                if option.data in self.pool.network:
+                    # If option data is an ip address, reserve it
+                    self.pool.reserve(option.code, option.data)
+            except:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
                 # reserve it
