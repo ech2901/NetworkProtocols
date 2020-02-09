@@ -28,7 +28,8 @@ class GarbageCollector(Thread):
 
     def shutdown(self):
         self.keep_alive = False
-        self.schedule.empty()
+        for event in self.schedule.queue:
+            self.schedule.cancel(event)
 
 
 class Pool(object):
