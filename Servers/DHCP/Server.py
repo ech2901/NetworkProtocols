@@ -1,5 +1,6 @@
 from configparser import ConfigParser
 from ipaddress import ip_network, ip_address
+from json import load, dump
 from sched import scheduler
 from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
@@ -287,18 +288,19 @@ class DHCPServer(RawServer):
     def __init__(self, interface=defaults.get('optional', 'interface'), **kwargs):
         RawServer.__init__(self, interface, DHCPHandler)
 
-        # Server addressing information
+        # Savefile
+        self.file = kwargs.get('savefile', defaults.get('optional', 'savefile'))
 
+        # Server addressing information
         self.server_ip = ip_address(kwargs.get('server_ip', defaults.get('ip addresses', 'server_ip')))
         self.server_port = kwargs.get('server_port', defaults.getint('numbers', 'server_port'))
         self.client_port = kwargs.get('client_port', defaults.getint('numbers', 'client_port'))
+        self.broadcast = kwargs.get('broadcast', defaults.getboolean('optional', 'broadcast'))
 
         # Server IP pool setup
-
         self.pool = Pool(kwargs.get('network', defaults.get('ip addresses', 'network')),
                          kwargs.get('mask', defaults.get('ip addresses', 'mask')))
-        self.pool.reserve(self.mac_address, self.server_ip)
-        self.broadcast = kwargs.get('broadcast', defaults.getboolean('optional', 'broadcast'))
+
 
         # Timing information
         self.offer_hold_time = kwargs.get('offer_hold_time', defaults.getint('numbers', 'offer_hold_time'))
@@ -334,7 +336,7 @@ class DHCPServer(RawServer):
     def register_client(self, address, clientid, client_ip):
         self.release_client(address, clientid)  # Release previously given IP client may have for reuse
         self.clients[(address, clientid)] = client_ip
-        self.gb.insert(self.get(Options.IPLeaseTime).data, self.release_client, address, clientid, client_ip)
+        self.gb.insert(self.get(Options.IPLeaseTime), self.release_client, address, clientid, client_ip)
 
     def release_client(self, address, clientid, client_ip=None):
         # clear long term reservation of ip address.
@@ -393,10 +395,10 @@ class DHCPServer(RawServer):
 
     def get(self, option):
         if (option.code in self.options):
-            return self.options[option.code]
+            return self.options[option.code].data
 
         elif (option.code in self.server_options):
-            return self.server_options[option.code]
+            return self.server_options[option.code].data
 
     def reserve(self, mac, ip):
         mac = MAC_Address(mac)
@@ -420,9 +422,61 @@ class DHCPServer(RawServer):
         super().start()
 
     def shutdown(self):
-
+        self.save()
         self.gb.shutdown()
         super().shutdown()
+
+    def save(self):
+        data = dict()
+
+        setup = dict()
+        setup['server_ip'] = self.server_ip._ip
+        setup['server_port'] = self.server_port
+        setup['client_port'] = self.client_port
+        setup['broadcast'] = self.broadcast
+        setup['network'] = self.pool.network._ip
+        setup['mask'] = self.pool.netmask._ip
+        setup['offer_hold_time'] = self.offer_hold_time
+        setup['ipleasetime'] = self.get(Options.IPLeaseTime)
+        setup['renewalt1'] = self.get(Options.RenewalT1)
+        setup['renewalt2'] = self.get(Options.RenewalT2)
+        data['setup_info'] = setup
+
+        reservations = dict()
+        for address, ip in self.pool.reservations.items():
+            reservations[address.address] = ip._ip
+        data['reservations'] = reservations
+
+        listing = list()
+        for listing in self.pool.listing:
+            listing.append(listing.address)
+        data['listings'] = (listing, self.pool.list_mode)
+
+        with open(self.file, 'w') as file:
+            dump(data, file)
+
+    @classmethod
+    def load(cls, savefile, **kwargs):
+        with open(savefile, 'r') as file:
+            data = load(file)
+
+        setup_info = data['setup']
+        reservations = data['reservations']
+        listing, list_mode = data['listings']
+
+        setup_info.update(kwargs)
+
+        out = cls(savefile=savefile, **setup_info)
+
+        for mac, ip in reservations.items():
+            out.reserve(mac, ip)
+
+        for mac in listing:
+            out.add_listing(mac)
+
+        out.pool.list_mode = list_mode
+
+        return out
 
     def __enter__(self):
         self.start()
