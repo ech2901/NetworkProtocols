@@ -356,7 +356,7 @@ class DHCPServer(RawServer):
             try:
                 if option.data in self.pool._network:
                     # If option data is an ip address, reserve it
-                    self.pool.reserve(option.code, option.data)
+                    self.pool.reserve(option.__class__.__name__, option.data)
             except AttributeError:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
@@ -462,8 +462,8 @@ class DHCPServer(RawServer):
             list(option.pack()) for option in self.server_options.values()
         ]
 
-        data['server_options'] = [
-            list(option.pack()) for option in self.server_options.values()
+        data['options'] = [
+            list(option.pack()) for option in self.options.values()
         ]
 
 
@@ -483,7 +483,7 @@ class DHCPServer(RawServer):
             server_options_bytes = b''.join([bytes(option_data) for option_data in data['server_options']])
             server_options = Options.BaseOption.unpack(server_options_bytes)
 
-            options_bytes = b''.join([bytes(option_data) for option_data in data['server_options']])
+            options_bytes = b''.join([bytes(option_data) for option_data in data['options']])
             options = Options.BaseOption.unpack(options_bytes)
 
             setup_info.update(kwargs)
