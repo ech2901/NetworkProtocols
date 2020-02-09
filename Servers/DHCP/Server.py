@@ -44,11 +44,17 @@ class Pool(object):
         self.list_mode = 'b'
 
     def reserve(self, mac, ip):
+
         try:
             self.hosts.remove(ip)
             self.reservations[mac] = ip
         except ValueError:
-            print(f'IP {ip} not in network {self._network}')
+            if mac in self.reservations:
+                pass
+            elif ip == self.broadcast:
+                pass
+            else:
+                print(f'IP {ip} not in network {self._network}')
 
     def unreserve(self, mac):
         self.reservations.pop(mac, None)
@@ -249,7 +255,7 @@ class DHCPHandler(BaseRequestHandler):
 
         ack.siaddr = self.server.server_ip
 
-        if req_ip:
+        if req_ip and req_ip != offer_ip:
             ack.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
         else:
             ack.yiaddr = offer_ip
@@ -325,13 +331,20 @@ class DHCPServer(RawServer):
             self.pool.add_ip(self.offers.pop((address, xid))[0])
 
     def register_client(self, address, clientid, client_ip):
+        self.release_client(address, clientid)  # Release previously given IP client may have for reuse
         self.clients[(address, clientid)] = client_ip
-        self.gb.insert(self.get(Options.IPLeaseTime).data, self.release_client, address, clientid)
+        self.gb.insert(self.get(Options.IPLeaseTime).data, self.release_client, address, clientid, client_ip)
 
-    def release_client(self, address, clientid):
+    def release_client(self, address, clientid, client_ip=None):
         # clear long term reservation of ip address.
         if ((address, clientid) in self.clients):
-            self.pool.add_ip(self.clients.pop((address, clientid)))
+            if client_ip:
+                if self.clients[(address, clientid)] == client_ip:
+                    # Prevent pre-mature removal of a client that was previously connected to network.
+                    self.pool.add_ip(self.clients.pop((address, clientid)))
+            else:
+                # If we're just trying to clear the client from the server.
+                self.pool.add_ip(self.clients.pop((address, clientid)))
 
     def register_server_option(self, option):
         # These options always are included in server DHCP packets
