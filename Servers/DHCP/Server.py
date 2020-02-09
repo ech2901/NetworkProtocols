@@ -88,7 +88,6 @@ class Pool(object):
             # If we don't have the listing and we're using a whitelist, don't give an IP
             return
 
-
         try:
             # Try to remove object from the reservations
             return self.reservations[mac]
@@ -131,35 +130,39 @@ class Pool(object):
 
 
 class DHCPHandler(BaseRequestHandler):
+    eth = None
+    ip = None
+    udp = None
+    packet = None
+    is_dhcp = False
+
     def setup(self):
         self.eth = Ethernet.disassemble(self.request[0])
         self.ip = self.eth.payload
-        if (self.ip.protocol == IPPROTO_UDP):
+        if self.ip.protocol == IPPROTO_UDP:
             self.udp = self.ip.payload
-            if (self.udp.destination == self.server.server_port):
+            if self.udp.destination == self.server.server_port:
                 self.is_dhcp = True
                 self.packet = Packet.DHCPPacket.disassemble(self.udp.payload)
                 return
 
-        self.is_dhcp = False
-
     def handle(self):
-        if(self.is_dhcp):
+        if self.is_dhcp:
 
             packet = None
 
-            if (Options.DHCPMessageType(1) in self.packet.options):
+            if Options.DHCPMessageType(1) in self.packet.options:
                 packet = self.handle_disco()
-            elif (Options.DHCPMessageType(3) in self.packet.options):
+            elif Options.DHCPMessageType(3) in self.packet.options:
                 packet = self.handle_req()
-            elif (Options.DHCPMessageType(4) in self.packet.options):
+            elif Options.DHCPMessageType(4) in self.packet.options:
                 packet = self.handle_decline()
-            elif (Options.DHCPMessageType(7) in self.packet.options):
+            elif Options.DHCPMessageType(7) in self.packet.options:
                 packet = self.handle_release()
-            elif (Options.DHCPMessageType(8) in self.packet.options):
+            elif Options.DHCPMessageType(8) in self.packet.options:
                 packet = self.handle_inform()
 
-            if (packet):
+            if packet:
 
                 # Building UDP Packet
 
@@ -169,12 +172,12 @@ class DHCPHandler(BaseRequestHandler):
 
                 ip = IPv4(self.server.server_ip, ip_address('255.255.255.255'), udp)
 
-                if (self.packet.hops):
+                if self.packet.hops:
                     packet.hops = self.packet.hops
                     packet.giaddr = self.packet.giaddr
                     ip.destination = packet.giaddr
 
-                elif (self.packet.ciaddr._ip):
+                elif self.packet.ciaddr._ip:
                     # If client has a put a reachable IP address in this field
                     # Send to this specific address
                     ip.destination = self.packet.ciaddr
@@ -183,7 +186,7 @@ class DHCPHandler(BaseRequestHandler):
 
                 eth = Ethernet(self.packet.chaddr, self.server.server_address[-1], ip)
 
-                if (self.server.broadcast or self.packet.broadcast):
+                if self.server.broadcast or self.packet.broadcast:
                     eth.destination = MAC_Address('FF:FF:FF:FF:FF:FF')
 
                 eth.calc_checksum()
@@ -201,15 +204,15 @@ class DHCPHandler(BaseRequestHandler):
         offer_ip = None
 
         for option in self.packet.options:
-            if (option.code == Options.ParameterRequestList.code):
+            if option.code == Options.ParameterRequestList.code:
                 for code in option.data:
                     if code in self.server.options:
                         offer.options.append(self.server.options[code])
 
-            if (option.code == Options.RequestedIP.code):
+            if option.code == Options.RequestedIP.code:
                 offer_ip = option.data
 
-            if (option.code == Options.HostName.code):
+            if option.code == Options.HostName.code:
                 client_hostname = option.data
 
         offer.options.append(Options.End())
@@ -235,20 +238,20 @@ class DHCPHandler(BaseRequestHandler):
         req_ip = None
 
         for option in self.packet.options:
-            if (option.code == Options.ParameterRequestList.code):
+            if option.code == Options.ParameterRequestList.code:
                 for code in option.data:
                     if code in self.server.options:
                         ack.options.append(self.server.options[code])
 
-            if (option.code == Options.RequestedIP.code):
+            if option.code == Options.RequestedIP.code:
                 # If the client didn't request a specific IP in the discover packet
                 req_ip = option.data
 
-            if (option.code == Options.HostName.code):
+            if option.code == Options.HostName.code:
                 # If the client didn't specify a hostname in the discover packet
                 client_hostname = option.data
 
-            if (option.code == Options.DHCPServerID.code):
+            if option.code == Options.DHCPServerID.code:
                 if option.data != self.server.server_ip:
                     # If the client is trying to request from a server other than us.
                     return None
@@ -301,7 +304,6 @@ class DHCPServer(RawServer):
         self.pool = Pool(kwargs.get('network', defaults.get('ip addresses', 'network')),
                          kwargs.get('mask', defaults.get('ip addresses', 'mask')))
 
-
         # Timing information
         self.offer_hold_time = kwargs.get('offer_hold_time', defaults.getint('numbers', 'offer_hold_time'))
         # Default lease time of 8 days
@@ -310,8 +312,6 @@ class DHCPServer(RawServer):
         RenewalT1 = kwargs.get('renewalt1', defaults.getint('numbers', 'renewalt1'))
         # Default rebind time of 3 days
         RenewalT2 = kwargs.get('renewalt2', defaults.getint('numbers', 'renewalt2'))
-
-
 
         self.register_server_option(Options.Subnet(self.pool.netmask))
         self.register_server_option(Options.BroadcastAddress(self.pool.broadcast))
@@ -323,14 +323,13 @@ class DHCPServer(RawServer):
 
         self.gb = GarbageCollector()
 
-
     def register_offer(self, address, xid, offer_ip, client_hostname):
         self.offers[(address, xid)] = (offer_ip, client_hostname)
         self.gb.insert(self.offer_hold_time, self.release_offer, address, xid)
 
     def release_offer(self, address, xid):
         # clear short term reservation of ip address.
-        if ((address, xid) in self.offers):
+        if (address, xid) in self.offers:
             self.pool.add_ip(self.offers.pop((address, xid))[0])
 
     def register_client(self, address, clientid, client_ip):
@@ -340,7 +339,7 @@ class DHCPServer(RawServer):
 
     def release_client(self, address, clientid, client_ip=None):
         # clear long term reservation of ip address.
-        if ((address, clientid) in self.clients):
+        if (address, clientid) in self.clients:
             if client_ip:
                 if self.clients[(address, clientid)] == client_ip:
                     # Prevent pre-mature removal of a client that was previously connected to network.
@@ -394,10 +393,10 @@ class DHCPServer(RawServer):
             pass
 
     def get(self, option):
-        if (option.code in self.options):
+        if option.code in self.options:
             return self.options[option.code].data
 
-        elif (option.code in self.server_options):
+        elif option.code in self.server_options:
             return self.server_options[option.code].data
 
     def reserve(self, mac, ip):
@@ -457,26 +456,33 @@ class DHCPServer(RawServer):
 
     @classmethod
     def load(cls, savefile, **kwargs):
-        with open(savefile, 'r') as file:
-            data = load(file)
+        try:
+            with open(savefile, 'r') as file:
+                data = load(file)
 
-        setup_info = data['setup']
-        reservations = data['reservations']
-        listing, list_mode = data['listings']
+            setup_info = data['setup']
+            reservations = data['reservations']
+            listing, list_mode = data['listings']
 
-        setup_info.update(kwargs)
+            setup_info.update(kwargs)
 
-        out = cls(savefile=savefile, **setup_info)
+            out = cls(savefile=savefile, **setup_info)
 
-        for mac, ip in reservations.items():
-            out.reserve(mac, ip)
+            for mac, ip in reservations.items():
+                out.reserve(mac, ip)
 
-        for mac in listing:
-            out.add_listing(mac)
+            for mac in listing:
+                out.add_listing(mac)
 
-        out.pool.list_mode = list_mode
+            out.pool.list_mode = list_mode
 
-        return out
+            return out
+
+        except FileNotFoundError:
+            return cls(**kwargs)
+        
+        except:
+            return
 
     def __enter__(self):
         self.start()
