@@ -378,7 +378,7 @@ class DHCPServer(RawServer):
             try:
                 if option.data in self.pool._network:
                     # If option data is an ip address, reserve it
-                    self.pool.reserve(option.code, option.data)
+                    self.pool.reserve(option.__class__.__name__, option.data)
             except AttributeError:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
@@ -443,7 +443,14 @@ class DHCPServer(RawServer):
 
         reservations = dict()
         for address, ip in self.pool.reservations.items():
-            reservations[address.address] = ip._ip
+            try:
+                # If we're saving a MAC_Address instance
+                reservations[address.address] = ip._ip
+            except AttributeError:
+                # If we're trying to save something other than a MAC_Address
+                continue
+
+
         data['reservations'] = reservations
 
         listing = list()
