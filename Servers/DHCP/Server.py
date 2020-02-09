@@ -458,8 +458,13 @@ class DHCPServer(RawServer):
             listing.append(listing.address)
         data['listings'] = (listing, self.pool.list_mode)
 
-        data['server_options'] = b''.join([option.pack() for option in self.server_options.values()])
-        data['options'] = b''.join([option.pack() for option in self.options.values()])
+        data['server_options'] = [
+            list(option.pack()) for option in self.server_options.values()
+        ]
+
+        data['server_options'] = [
+            list(option.pack()) for option in self.server_options.values()
+        ]
 
 
         with open(self.file, 'w') as file:
@@ -474,8 +479,12 @@ class DHCPServer(RawServer):
             setup_info = data['setup']
             reservations = data['reservations']
             listing, list_mode = data['listings']
-            server_options = Options.BaseOption.unpack(data['server_options'])
-            options = Options.BaseOption.unpack(data['options'])
+
+            server_options_bytes = b''.join([bytes(option_data) for option_data in data['server_options']])
+            server_options = Options.BaseOption.unpack(server_options_bytes)
+
+            options_bytes = b''.join([bytes(option_data) for option_data in data['server_options']])
+            options = Options.BaseOption.unpack(options_bytes)
 
             setup_info.update(kwargs)
 
