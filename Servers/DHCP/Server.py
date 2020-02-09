@@ -35,7 +35,13 @@ class Pool(object):
     def __init__(self, network='192.168.0.0', mask='255.255.255.0'):
         self._network = ip_network(fr'{network}/{mask}')
         self.hosts = list(self._network.hosts())
+
+        # IP/MAC reservations
         self.reservations = dict()
+
+        # White/Blacklist handling
+        self.listing = list()
+        self.list_mode = 'b'
 
     def reserve(self, mac, ip):
         try:
@@ -50,7 +56,31 @@ class Pool(object):
     def is_reserved(self, mac):
         return mac in self.reservations
 
+    def add_listing(self, mac):
+        if mac not in self.listing:
+            self.listing.append(mac)
+
+    def remove_listing(self, mac):
+        if mac in self.listing:
+            self.listing.remove(mac)
+
+    def toggle_listing_mode(self):
+        if self.list_mode == 'w':
+            self.list_mode = 'b'
+            return
+        self.list_mode = 'w'
+
     def get_ip(self, mac, requested_ip=None):
+
+        if mac in self.listing:
+            if self.list_mode == 'b':
+                # If we have the listing and we're using a blacklist, don't give an IP
+                return None
+        elif self.list_mode == 'w':
+            # If we don't have the listing and we're using a whitelist, don't give an IP
+            return
+
+
         try:
             # Try to remove object from the reservations
             return self.reservations[mac]
@@ -100,7 +130,6 @@ class DHCPHandler(BaseRequestHandler):
             self.udp = self.ip.payload
             if (self.udp.destination == self.server.server_port):
                 self.is_dhcp = True
-                self.send_packet = False
                 self.packet = Packet.DHCPPacket.disassemble(self.udp.payload)
                 return
 
@@ -146,7 +175,7 @@ class DHCPHandler(BaseRequestHandler):
 
                 eth = Ethernet(self.packet.chaddr, self.server.server_address[-1], ip)
 
-                if (self.server.broadcast):
+                if (self.server.broadcast or self.packet.broadcast):
                     eth.destination = MAC_Address('FF:FF:FF:FF:FF:FF')
 
                 eth.calc_checksum()
@@ -180,9 +209,10 @@ class DHCPHandler(BaseRequestHandler):
         offer.siaddr = self.server.server_ip
         offer.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
 
-        self.server.register_offer(offer.chaddr, offer.xid, offer.yiaddr, client_hostname)
-
-        return offer
+        if offer.yiaddr:
+            # If we're offering a valid IP (EG not None), proceed with offer
+            self.server.register_offer(offer.chaddr, offer.xid, offer.yiaddr, client_hostname)
+            return offer
 
     def handle_req(self):
 
@@ -194,7 +224,7 @@ class DHCPHandler(BaseRequestHandler):
         ack.options.extend(self.server.server_options.values())
 
         offer_ip, client_hostname = self.server.offers[(ack.chaddr, ack.xid)]
-
+        req_ip = None
 
         for option in self.packet.options:
             if (option.code == Options.ParameterRequestList.code):
@@ -203,23 +233,31 @@ class DHCPHandler(BaseRequestHandler):
                         ack.options.append(self.server.options[code])
 
             if (option.code == Options.RequestedIP.code):
-                offer_ip = option.data
+                # If the client didn't request a specific IP in the discover packet
+                req_ip = option.data
 
             if (option.code == Options.HostName.code):
+                # If the client didn't specify a hostname in the discover packet
                 client_hostname = option.data
 
             if (option.code == Options.DHCPServerID.code):
                 if option.data != self.server.server_ip:
+                    # If the client is trying to request from a server other than us.
                     return None
 
         ack.options.append(Options.End())
 
         ack.siaddr = self.server.server_ip
-        ack.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
 
-        self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
+        if req_ip:
+            ack.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
+        else:
+            ack.yiaddr = offer_ip
 
-        return ack
+        if ack.yiaddr:
+            self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
+
+            return ack
 
     def handle_decline(self):
         pass
@@ -333,7 +371,7 @@ class DHCPServer(RawServer):
                 for index, addr in enumerate(option.data, start=1):
                     if addr not in self.pool._network:
                         continue
-                    self.pool.reserve(f'{option.code}-{index}', addr)
+                    self.pool.reserve(f'{option.__class__.__name__}-{index}', addr)
 
         except:
             # option data isn't an IP Address
@@ -345,6 +383,23 @@ class DHCPServer(RawServer):
 
         elif (option.code in self.server_options):
             return self.server_options[option.code]
+
+    def reserve(self, mac, ip):
+        mac = MAC_Address(mac)
+        ip = ip_address(ip)
+        self.pool.reserve(mac, ip)
+
+    def unreserve(self, mac):
+        mac = MAC_Address(mac)
+        self.pool.unreserve(mac)
+
+    def add_listing(self, mac):
+        mac = MAC_Address(mac)
+        self.pool.add_listing(mac)
+
+    def remove_listing(self, mac):
+        mac = MAC_Address(mac)
+        self.pool.remove_listing(mac)
 
     def start(self):
         self.gb.start()
