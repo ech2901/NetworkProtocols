@@ -301,8 +301,8 @@ class DHCPServer(RawServer):
         self.broadcast = kwargs.get('broadcast', defaults.getboolean('optional', 'broadcast'))
 
         # Server IP pool setup
-        self.pool = Pool(kwargs.get('network', defaults.get('ip addresses', 'network')),
-                         kwargs.get('mask', defaults.get('ip addresses', 'mask')))
+        self.pool = Pool(ip_address(kwargs.get('network', defaults.get('ip addresses', 'network'))),
+                         ip_address(kwargs.get('mask', defaults.get('ip addresses', 'mask'))))
 
         # Timing information
         self.offer_hold_time = kwargs.get('offer_hold_time', defaults.getint('numbers', 'offer_hold_time'))
@@ -510,7 +510,7 @@ class DHCPServer(RawServer):
             return cls(**kwargs)
 
         except Exception as e:
-            print(e)
+            print(f'{e.__class__.__name__}: {e}')
 
     def __enter__(self):
         self.start()
