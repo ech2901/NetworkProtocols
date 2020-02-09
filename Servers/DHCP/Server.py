@@ -476,7 +476,7 @@ class DHCPServer(RawServer):
             with open(savefile, 'r') as file:
                 data = load(file)
 
-            setup_info = data['setup']
+            setup_info = data['setup_info']
             reservations = data['reservations']
             listing, list_mode = data['listings']
 
@@ -509,8 +509,8 @@ class DHCPServer(RawServer):
         except FileNotFoundError:
             return cls(**kwargs)
 
-        except:
-            return
+        except Exception as e:
+            print(e)
 
     def __enter__(self):
         self.start()
