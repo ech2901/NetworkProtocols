@@ -1,12 +1,50 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from ipaddress import ip_address
+from os import urandom
+from socket import socket, AF_INET, SOCK_DGRAM, timeout
 from struct import pack, unpack
+
+
+def unpack_name(data, offset_copy=None, *, return_unused=False):
+    name_data = list(data)
+    size = name_data.pop(0)
+    name = list()
+    while size:
+        if size == 0xc0:
+            offset = name_data.pop(0)
+
+            referenced_name, _ = unpack_name(offset_copy[offset:], offset_copy)
+            name.extend(list(referenced_name))
+            break
+
+        name.extend(name_data[:size])
+        name_data = name_data[size:]
+
+        size = name_data.pop(0)
+        if size:
+            name.append(b'.'[0])
+
+    if return_unused:
+        return bytes(name), bytes(name_data)
+    return bytes(name)
+
+
+def pack_name(data):
+    if data:
+        name_data = data.split(b'.')
+        name = b''
+        for segment in name_data:
+            size = len(segment)
+            name = name + pack(f'! B {size}s', size, segment)
+
+        return name + b'\x00'
+    return b'\x00'
 
 
 class Types(Enum):
     A = (1, 'IPv4 Address', ip_address)
-    NS = (2, 'Authoritative Name Server', ip_address)
+    NS = (2, 'Authoritative Name Server')
     MD = (3, 'Mail Destinatin (Obsolete)')
     MF = (4, 'Mail Forwarder (Obsolete)')
     CNAME = (5, 'Canonical name')
@@ -16,7 +54,7 @@ class Types(Enum):
     MR = (9, 'Mail Rename Doamin Name')
     NULL = (10, 'Null Resource Record')
     WKS = (11, 'Well Known Service')
-    PTR = (12, 'Domain Name Pointer')
+    PTR = (12, 'Domain Name Pointer', unpack_name)
     HINFO = (13, 'IPv4 Address')
     MINFO = (14, 'IPv4 Address')
     MX = (15, 'IPv4 Address')
@@ -89,7 +127,7 @@ class Types(Enum):
         return obj
 
     def __repr__(self):
-        return f'{self._name_}(class={self._value_}, description={self.description})'
+        return f'{self._name_}(type={self._value_}, description={self.description})'
 
     def __str__(self):
         return repr(self)
@@ -131,30 +169,6 @@ class Classes(Enum):
         return pack('! H', self._value_)
 
 
-def unpack_name(data):
-    name_data = list(data)
-    size = name_data.pop(0)
-    name = list()
-    while size:
-        name.extend(name_data[:size])
-        name_data = name_data[size:]
-        size = name_data.pop(0)
-        if size:
-            name.append(b'.'[0])
-
-    return bytes(name)
-
-
-def pack_name(data):
-    name_data = data.split(b'.')
-    name = b''
-    for segment in name_data:
-        size = len(segment)
-        name = name + pack(f'! B {size}s', size, segment)
-
-    return name + b'\x00'
-
-
 @dataclass
 class Packet(object):
     identification: int
@@ -185,6 +199,8 @@ class Packet(object):
 
     @classmethod
     def from_bytes(cls, data):
+        offset_copy = data
+
         identification, flags, tq, ta, tau, tad = unpack('! 6H', data[:12])
 
         qr = flags & 0b1000000000000000
@@ -206,19 +222,19 @@ class Packet(object):
         data = data[12:]
 
         for _ in range(tq):
-            question, data = Query.from_bytes(data)
+            question, data = Query.from_bytes(data, offset_copy)
             questions.append(question)
 
         for _ in range(ta):
-            answer, data = ResourceRecord.from_bytes(data)
+            answer, data = ResourceRecord.from_bytes(data, offset_copy)
             answers.append(answer)
 
         for _ in range(tau):
-            auth_answer, data = ResourceRecord.from_bytes(data)
+            auth_answer, data = ResourceRecord.from_bytes(data, offset_copy)
             authorities.append(auth_answer)
 
         for _ in range(tad):
-            add_answer, data = ResourceRecord.from_bytes(data)
+            add_answer, data = ResourceRecord.from_bytes(data, offset_copy)
             additionals.append(add_answer)
 
         return cls(identification, qr, opcode, aa, tc, rd, ra, ad, cd,
@@ -247,28 +263,30 @@ class Packet(object):
         return data
 
 
-@dataclass
+@dataclass(repr=False)
 class Query(object):
     name: bytes
     _type: Types
     _class: Classes
 
     @classmethod
-    def from_bytes(cls, data):
-        name = unpack_name(data)
-        offset = 2 + len(name)
+    def from_bytes(cls, data, offset_copy=None):
+        name, data = unpack_name(data, offset_copy, return_unused=True)
 
-        _type, _class = unpack('! 2H', data[offset:offset + 4])
+        _type, _class = unpack('! 2H', data[:4])
 
-        return cls(name, _type, _class), data[offset + 4:]
+        return cls(name, Types(_type), Classes(_class)), data[4:]
 
     def to_bytes(self):
         name = pack_name(self.name)
 
         return name + self._type.to_bytes() + self._class.to_bytes()
 
+    def __repr__(self):
+        return f'{self.__class__.__name__}(name={self.name}, type={self._type.description}, class={self._class.description})'
 
-@dataclass
+
+@dataclass(repr=False)
 class ResourceRecord(object):
     name: bytes
     _type: Types
@@ -278,18 +296,51 @@ class ResourceRecord(object):
     rdata: bytes
 
     @classmethod
-    def from_bytes(cls, data):
-        name = unpack_name(data)
-        data = data[2 + len(name):]
+    def from_bytes(cls, data, offset_copy=None):
+        name, data = unpack_name(data, offset_copy, return_unused=True)
 
         _type, _class, ttl, length = unpack('! 2H L H', data[:10])
 
         rdata = data[10:10 + length]
 
-        return cls(name, _type, _class, ttl, length, rdata), data[10 + length:]
+        return cls(name, Types(_type), Classes(_class), ttl, length, rdata), data[10 + length:]
 
     def to_bytes(self):
         name = pack_name(self.name)
         data = name + self._type.to_bytes() + self._class.to_bytes() + pack('! L H', self.ttl, self.rdata_length)
 
         return data + self.rdata
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(name={self.name}, type={self._type.description}, class={self._class.description}, ttl={self.ttl}, rdata={self._type.factory(
+            self.rdata)})'
+
+
+def lookup(url, *servers, **kwargs):
+    request = Query(url.encode(), kwargs.get('type', Types.A), kwargs.get('class', Classes.IN))
+    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
+                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
+                    questions=[request])
+
+    sock = socket(AF_INET, SOCK_DGRAM)
+    sock.bind(('', 0))
+    sock.settimeout(kwargs.get('timeout', 1))
+
+    for server in servers:
+        sock.sendto(packet.to_bytes(), (server, 53))
+
+        try:
+            data, addr = sock.recvfrom(65536)
+        except timeout:
+            continue
+
+        resp_packet = Packet.from_bytes(data)
+        if resp_packet.identification == packet.identification:
+            return resp_packet
+
+
+def ilookup(ip, *servers, **kwargs):
+    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
+
+    kwargs['type'] = Types.PTR
+    return lookup(ip, *servers, **kwargs)
