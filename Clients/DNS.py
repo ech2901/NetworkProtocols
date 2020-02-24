@@ -340,8 +340,9 @@ class ResourceRecord(object):
         return data + self.rdata
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(name={self.name}, type={self._type.description}, class={self._class.description}, ttl={self.ttl}, rdata={self._type.factory(
-            self.rdata)})'
+        out = f'{self.__class__.__name__}(name={self.name}, type={self._type.description}'
+        out = out + f', class={self._class.description}, ttl={self.ttl}, rdata={self._type.factory(self.rdata)})'
+        return out
 
     def __str__(self):
         out = 'Record'.center(64, '-')
