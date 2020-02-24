@@ -14,7 +14,7 @@ def unpack_name(data, offset_copy=None, *, return_unused=False):
         if size == 0xc0:
             offset = name_data.pop(0)
 
-            referenced_name, _ = unpack_name(offset_copy[offset:], offset_copy)
+            referenced_name = unpack_name(offset_copy[offset:], offset_copy)
             name.extend(list(referenced_name))
             break
 
@@ -203,13 +203,13 @@ class Packet(object):
 
         identification, flags, tq, ta, tau, tad = unpack('! 6H', data[:12])
 
-        qr = flags & 0b1000000000000000
-        opcode = flags & 0b111100000000000
+        qr = flags >> 15
+        opcode = (flags & 0b111100000000000) >> 11
         aa = bool(flags & 0b10000000000)
         tc = bool(flags & 0b1000000000)
         rd = bool(flags & 0b100000000)
         ra = bool(flags & 0b10000000)
-        # z = bool(flags &         0b1000000) Not needed, but good to see the placement
+        # z = bool(flags &0b1000000) Not needed, but good to see the placement
         ad = bool(flags & 0b100000)
         cd = bool(flags & 0b10000)
         rcode = flags & 0b1111
@@ -262,6 +262,30 @@ class Packet(object):
 
         return data
 
+    def __str__(self):
+        out = 'DNS'.center(64, '-')
+        out = f'{out}\nIdentification: {self.identification}\nQuery/Response: {"Response" if self.qr else "Query"}'
+        out = f'{out}\nOp Code: {self.opcode}\nAuthoritative Answer: {self.aa}\nTruncated: {self.tc}'
+        out = f'{out}\nRecursion Desired: {self.rd}\nRecursion Available: {self.ra}\nAuthenticated Data: {self.ad}'
+        out = f'{out}\nChecking Disabled: {self.cd}\nReturn Code: {self.rcode}\nTotal Questions: {self.total_questions}'
+        out = f'{out}\nTotal Answer Resource Records: {self.total_answer_rrs}'
+        out = f'{out}\nTotal Authority Resource Records: {self.total_authority_rrs}'
+        out = f'{out}\nTotal Additional Resource Records: {self.total_additional_rrs}'
+
+        for question in self.questions:
+            out = f'{out}\n{str(question)}'
+
+        for answer in self.answer_rrs:
+            out = f'{out}\n{str(answer)}'
+
+        for answer in self.authority_rrs:
+            out = f'{out}\n{str(answer)}'
+
+        for answer in self.additional_rrs:
+            out = f'{out}\n{str(answer)}'
+
+        return out
+
 
 @dataclass(repr=False)
 class Query(object):
@@ -285,6 +309,10 @@ class Query(object):
     def __repr__(self):
         return f'{self.__class__.__name__}(name={self.name}, type={self._type.description}, class={self._class.description})'
 
+    def __str__(self):
+        out = 'Query'.center(64, '-')
+        out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
+        return out
 
 @dataclass(repr=False)
 class ResourceRecord(object):
@@ -315,6 +343,11 @@ class ResourceRecord(object):
         return f'{self.__class__.__name__}(name={self.name}, type={self._type.description}, class={self._class.description}, ttl={self.ttl}, rdata={self._type.factory(
             self.rdata)})'
 
+    def __str__(self):
+        out = 'Record'.center(64, '-')
+        out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
+        out = f'{out}\nTTL: {self.ttl}\nRecord Data: {self._type.factory(self.rdata).decode()}'
+        return out
 
 def lookup(url, *servers, **kwargs):
     request = Query(url.encode(), kwargs.get('type', Types.A), kwargs.get('class', Classes.IN))
