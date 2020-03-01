@@ -1,132 +1,16 @@
 from configparser import ConfigParser
-from ipaddress import ip_network, ip_address
+from ipaddress import ip_address
 from json import load, dump
-from sched import scheduler
 from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
-from threading import Thread
 
 from RawPacket import Ethernet, IPv4, UDP, MAC_Address
 from Servers import RawServer
 from Servers.DHCP import Options, Packet
+from Servers.DHCP.Classes import Pool, GarbageCollector, Record
 
 defaults = ConfigParser()
 defaults.read(r'Servers/DHCP/config.ini')
-
-
-class GarbageCollector(Thread):
-    def __init__(self):
-        super().__init__()
-        self.schedule = scheduler()
-        self.keep_alive = True
-
-    def run(self):
-        while self.keep_alive:
-            self.schedule.run()
-
-    def insert(self, delay, action, *args):
-        self.schedule.enter(delay, 1, action, args)
-
-    def shutdown(self):
-        self.keep_alive = False
-        for event in self.schedule.queue:
-            self.schedule.cancel(event)
-
-
-class Pool(object):
-    def __init__(self, network='192.168.0.0', mask='255.255.255.0'):
-        self._network = ip_network(fr'{network}/{mask}')
-        self.hosts = list(self._network.hosts())
-
-        # IP/MAC reservations
-        self.reservations = dict()
-
-        # White/Blacklist handling
-        self.listing = list()
-        self.list_mode = 'b'
-
-    def reserve(self, mac, ip):
-
-        try:
-            self.hosts.remove(ip)
-            self.reservations[mac] = ip
-        except ValueError:
-            if mac in self.reservations:
-                pass
-            elif ip == self.broadcast:
-                pass
-            else:
-                print(f'IP {ip} not in network {self._network}')
-
-    def unreserve(self, mac):
-        self.reservations.pop(mac, None)
-
-    def is_reserved(self, mac):
-        return mac in self.reservations
-
-    def add_listing(self, mac):
-        if mac not in self.listing:
-            self.listing.append(mac)
-
-    def remove_listing(self, mac):
-        if mac in self.listing:
-            self.listing.remove(mac)
-
-    def toggle_listing_mode(self):
-        if self.list_mode == 'w':
-            self.list_mode = 'b'
-            return
-        self.list_mode = 'w'
-
-    def get_ip(self, mac, requested_ip=None):
-
-        if mac in self.listing:
-            if self.list_mode == 'b':
-                # If we have the listing and we're using a blacklist, don't give an IP
-                return None
-        elif self.list_mode == 'w':
-            # If we don't have the listing and we're using a whitelist, don't give an IP
-            return
-
-        try:
-            # Try to remove object from the reservations
-            return self.reservations[mac]
-
-        except KeyError:
-            # KeyError will be raised if trying to get
-            # a reservation that does not exists.
-            try:
-                self.hosts.remove(requested_ip)
-                return requested_ip
-
-            except ValueError:
-                # ValueError will be raised if trying to get
-                # an IP address that does not exists in our pool of hosts.
-                try:
-                    return self.hosts.pop(0)
-
-                except IndexError:
-                    # If the number of available addresses gets exhausted return None
-                    return None
-
-    def add_ip(self, ip):
-        if ip in self._network:
-            self.hosts.insert(0, ip)
-
-    @property
-    def broadcast(self):
-        return self._network.broadcast_address
-
-    @property
-    def netmask(self):
-        return self._network.netmask
-
-    @property
-    def network(self):
-        return self._network.network_address
-
-    def __contains__(self, item):
-        return item in self.hosts
 
 
 class DHCPHandler(BaseRequestHandler):
@@ -200,7 +84,7 @@ class DHCPHandler(BaseRequestHandler):
         offer.options.append(Options.DHCPMessageType(2))
         offer.options.extend(self.server.server_options.values())
 
-        client_hostname = b''
+        client_hostname = ''
         offer_ip = None
 
         for option in self.packet.options:
@@ -213,7 +97,7 @@ class DHCPHandler(BaseRequestHandler):
                 offer_ip = option.data
 
             if option.code == Options.HostName.code:
-                client_hostname = option.data
+                client_hostname = option.data.encode(errors='ignore')
 
         offer.options.append(Options.End())
 
@@ -261,14 +145,14 @@ class DHCPHandler(BaseRequestHandler):
         ack.siaddr = self.server.server_ip
 
         if req_ip and req_ip != offer_ip:
-            ack.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
+            record = self.server.pool.get_ip(client_hostname, self.packet.chaddr, req_ip)
         else:
-            ack.yiaddr = offer_ip
+            record = Record(client_hostname, self.packet.chaddr, offer_ip)
 
-        if ack.yiaddr:
-            self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
+        ack.yiaddr = record.ip
 
-            return ack
+        self.server.register_client(record)
+        return ack
 
     def handle_decline(self):
         pass
@@ -281,8 +165,7 @@ class DHCPHandler(BaseRequestHandler):
 
 
 class DHCPServer(RawServer):
-
-    clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
+    clients = list()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
     offers = dict()  # Keys will be a tuple of (MAC Address, XID).
 
     server_options = dict()
@@ -323,30 +206,29 @@ class DHCPServer(RawServer):
 
         self.gb = GarbageCollector()
 
-    def register_offer(self, address, xid, offer_ip, client_hostname):
-        self.offers[(address, xid)] = (offer_ip, client_hostname)
-        self.gb.insert(self.offer_hold_time, self.release_offer, address, xid)
+    def register_offer(self, record: Record, xid: bytes):
+        self.offers[(record.mac, xid)] = record
+        self.gb.insert(self.offer_hold_time, self.release_offer, record.mac, xid)
 
-    def release_offer(self, address, xid):
+    def release_offer(self, mac: MAC_Address, xid: bytes):
         # clear short term reservation of ip address.
-        if (address, xid) in self.offers:
-            self.pool.add_ip(self.offers.pop((address, xid))[0])
+        try:
+            self.pool.add_ip(self.offers.pop((mac, xid)).ip)
+        except KeyError:
+            pass
 
-    def register_client(self, address, clientid, client_ip):
-        self.release_client(address, clientid)  # Release previously given IP client may have for reuse
-        self.clients[(address, clientid)] = client_ip
-        self.gb.insert(self.get(Options.IPLeaseTime), self.release_client, address, clientid, client_ip)
+    def register_client(self, record: Record):
+        self.release_client(record)  # Release previously given IP client may have for reuse
+        self.clients.append(record)
+        self.gb.insert(self.get(Options.IPLeaseTime), self.release_client, record)
 
-    def release_client(self, address, clientid, client_ip=None):
+    def release_client(self, record: Record):
         # clear long term reservation of ip address.
-        if (address, clientid) in self.clients:
-            if client_ip:
-                if self.clients[(address, clientid)] == client_ip:
-                    # Prevent pre-mature removal of a client that was previously connected to network.
-                    self.pool.add_ip(self.clients.pop((address, clientid)))
-            else:
-                # If we're just trying to clear the client from the server.
-                self.pool.add_ip(self.clients.pop((address, clientid)))
+        try:
+            self.clients.remove(record)
+            self.pool.add_ip(record.ip)
+        except ValueError:
+            pass
 
     def register_server_option(self, option):
         # These options always are included in server DHCP packets
@@ -399,20 +281,20 @@ class DHCPServer(RawServer):
         elif option.code in self.server_options:
             return self.server_options[option.code].data
 
-    def reserve(self, mac, ip):
-        mac = MAC_Address(mac)
-        ip = ip_address(ip)
-        self.pool.reserve(mac, ip)
+    def reserve(self, name: str, mac: str, ip: str):
+        record = Record(name, MAC_Address(mac), ip_address(ip))
 
-    def unreserve(self, mac):
+        self.pool.reserve(record)
+
+    def unreserve(self, mac: str):
         mac = MAC_Address(mac)
         self.pool.unreserve(mac)
 
-    def add_listing(self, mac):
+    def add_listing(self, mac: str):
         mac = MAC_Address(mac)
         self.pool.add_listing(mac)
 
-    def remove_listing(self, mac):
+    def remove_listing(self, mac: str):
         mac = MAC_Address(mac)
         self.pool.remove_listing(mac)
 
@@ -471,7 +353,7 @@ class DHCPServer(RawServer):
             dump(data, file)
 
     @classmethod
-    def load(cls, savefile, **kwargs):
+    def load(cls, savefile: str, **kwargs):
         try:
             with open(savefile, 'r') as file:
                 data = load(file)
