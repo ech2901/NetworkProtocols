@@ -236,24 +236,36 @@ class DHCPServer(RawServer):
         self.server_options[option.code] = option
 
         # If option data is an ip address, reserve it
-        if option.data in self.pool.hosts:
+        try:
             self.pool.hosts.remove(option.data)
-        else:
-            for index, addr in enumerate(option.data, start=1):
-                if addr in self.pool.hosts:
-                    self.pool.hosts.remove(addr)
+        except:
+            try:
+                for index, addr in enumerate(option.data, start=1):
+                    try:
+                        self.pool.hosts.remove(addr)
+                    except ValueError:
+                        continue
+
+            except TypeError:
+                return
 
     def register(self, option):
         # These options are included in server DHCP packets by request of client
         self.options[option.code] = option
 
         # If option data is an ip address, reserve it
-        if option.data in self.pool.hosts:
+        try:
             self.pool.hosts.remove(option.data)
-        else:
-            for index, addr in enumerate(option.data, start=1):
-                if addr in self.pool.hosts:
-                    self.pool.hosts.remove(addr)
+        except:
+            try:
+                for index, addr in enumerate(option.data, start=1):
+                    try:
+                        self.pool.hosts.remove(addr)
+                    except ValueError:
+                        continue
+
+            except TypeError:
+                return
 
     def get(self, option):
         if option.code in self.options:
