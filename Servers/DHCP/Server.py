@@ -97,7 +97,7 @@ class DHCPHandler(BaseRequestHandler):
                 offer_ip = option.data
 
             if option.code == Options.HostName.code:
-                client_hostname = option.data.encode(errors='ignore')
+                client_hostname = option.data.decode(errors='ignore')
 
         offer.options.append(Options.End())
 
@@ -136,7 +136,7 @@ class DHCPHandler(BaseRequestHandler):
 
             if option.code == Options.HostName.code:
                 # If the client didn't specify a hostname in the discover packet
-                offer_record.name = option.data.encode(errors='ignore')
+                offer_record.name = option.data.decode(errors='ignore')
 
             if option.code == Options.DHCPServerID.code:
                 if option.data != self.server.server_ip:
