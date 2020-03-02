@@ -239,15 +239,15 @@ class DHCPServer(RawServer):
             try:
                 if option.data in self.pool._network:
                     # If option data is an ip address, reserve it
-                    self.pool.reserve(option.__class__.__name__, option.data)
+                    record = Record(option.__class__.__name__, 0, option.data)
+                    self.pool.reserve(record)
             except AttributeError:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
                 # reserve it
                 for index, addr in enumerate(option.data, start=1):
-                    if addr not in self.pool._network:
-                        continue
-                    self.pool.reserve(f'{option.code}-{index}', addr)
+                    record = Record(f'{option.__class__.__name__}-{index}', 0, addr)
+                    self.reserve(record)
 
         except:
             # option data isn't an IP Address
@@ -261,15 +261,15 @@ class DHCPServer(RawServer):
             try:
                 if option.data in self.pool._network:
                     # If option data is an ip address, reserve it
-                    self.pool.reserve(option.__class__.__name__, option.data)
+                    record = Record(option.__class__.__name__, 0, option.data)
+                    self.pool.reserve(record)
             except AttributeError:
                 # Otherwise, try to iterate through the data as a list
                 # and if it is an ip address in the network pool
                 # reserve it
                 for index, addr in enumerate(option.data, start=1):
-                    if addr not in self.pool._network:
-                        continue
-                    self.pool.reserve(f'{option.__class__.__name__}-{index}', addr)
+                    record = Record(f'{option.__class__.__name__}-{index}', 0, addr)
+                    self.reserve(record)
 
         except:
             # option data isn't an IP Address
