@@ -119,18 +119,18 @@ class Pool(object):
             # a reservation that does not exists.
             try:
                 self.hosts.remove(ip)
-                return Record(clientid, mac, ip)
 
             except ValueError:
                 # ValueError will be raised if trying to get
                 # an IP address that does not exists in our pool of hosts.
                 try:
                     ip = self.hosts.pop(0)
-                    return Record(clientid, mac, ip)
 
                 except IndexError:
                     # If the number of available addresses gets exhausted return None
                     return None
+            finally:
+                return Record(clientid, mac, ip)
 
     def add_ip(self, ip: ip_address):
         if ip in self._network:

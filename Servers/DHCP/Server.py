@@ -101,13 +101,16 @@ class DHCPHandler(BaseRequestHandler):
 
         offer.options.append(Options.End())
 
-        offer.siaddr = self.server.server_ip
-        offer.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
+        # Record we'll use to reference client.
+        offer_record = self.server.pool.get_ip(client_hostname, self.packet.chaddr, offer_ip)
 
-        if offer.yiaddr:
-            # If we're offering a valid IP (EG not None), proceed with offer
-            self.server.register_offer(offer.chaddr, offer.xid, offer.yiaddr, client_hostname)
-            return offer
+
+        offer.siaddr = self.server.server_ip
+        offer.yiaddr = offer_record.ip
+
+        # If we're offering a valid IP (EG not None), proceed with offer
+        self.server.register_offer(offer_record, offer.xid)
+        return offer
 
     def handle_req(self):
 
@@ -118,7 +121,7 @@ class DHCPHandler(BaseRequestHandler):
         ack.options.append(Options.DHCPMessageType(5))
         ack.options.extend(self.server.server_options.values())
 
-        offer_ip, client_hostname = self.server.offers[(ack.chaddr, ack.xid)]
+        offer_record = self.server.offers[(ack.chaddr, ack.xid)]
         req_ip = None
 
         for option in self.packet.options:
@@ -133,7 +136,7 @@ class DHCPHandler(BaseRequestHandler):
 
             if option.code == Options.HostName.code:
                 # If the client didn't specify a hostname in the discover packet
-                client_hostname = option.data
+                offer_record.name = option.data.encode(errors='ignore')
 
             if option.code == Options.DHCPServerID.code:
                 if option.data != self.server.server_ip:
@@ -142,16 +145,14 @@ class DHCPHandler(BaseRequestHandler):
 
         ack.options.append(Options.End())
 
+        if req_ip and req_ip != offer_record.ip:
+            self.server.pool.add_ip(offer_record.ip)
+            offer_record = self.server.pool.get_ip(offer_record.name, offer_record.mac, req_ip)
+
         ack.siaddr = self.server.server_ip
+        ack.yiaddr = offer_record.ip
 
-        if req_ip and req_ip != offer_ip:
-            record = self.server.pool.get_ip(client_hostname, self.packet.chaddr, req_ip)
-        else:
-            record = Record(client_hostname, self.packet.chaddr, offer_ip)
-
-        ack.yiaddr = record.ip
-
-        self.server.register_client(record)
+        self.server.register_client(offer_record)
         return ack
 
     def handle_decline(self):
