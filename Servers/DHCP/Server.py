@@ -235,45 +235,25 @@ class DHCPServer(RawServer):
         # These options always are included in server DHCP packets
         self.server_options[option.code] = option
 
-        try:
-            try:
-                if option.data in self.pool._network:
-                    # If option data is an ip address, reserve it
-                    record = Record(option.__class__.__name__, 0, option.data)
-                    self.pool.reserve(record)
-            except AttributeError:
-                # Otherwise, try to iterate through the data as a list
-                # and if it is an ip address in the network pool
-                # reserve it
-                for index, addr in enumerate(option.data, start=1):
-                    record = Record(f'{option.__class__.__name__}-{index}', 0, addr)
-                    self.reserve(record)
-
-        except:
-            # option data isn't an IP Address
-            pass
+        # If option data is an ip address, reserve it
+        if option.data in self.pool.hosts:
+            self.pool.hosts.remove(option.data)
+        else:
+            for index, addr in enumerate(option.data, start=1):
+                if addr in self.pool.hosts:
+                    self.pool.hosts.remove(addr)
 
     def register(self, option):
         # These options are included in server DHCP packets by request of client
         self.options[option.code] = option
 
-        try:
-            try:
-                if option.data in self.pool._network:
-                    # If option data is an ip address, reserve it
-                    record = Record(option.__class__.__name__, 0, option.data)
-                    self.pool.reserve(record)
-            except AttributeError:
-                # Otherwise, try to iterate through the data as a list
-                # and if it is an ip address in the network pool
-                # reserve it
-                for index, addr in enumerate(option.data, start=1):
-                    record = Record(f'{option.__class__.__name__}-{index}', 0, addr)
-                    self.reserve(record)
-
-        except:
-            # option data isn't an IP Address
-            pass
+        # If option data is an ip address, reserve it
+        if option.data in self.pool.hosts:
+            self.pool.hosts.remove(option.data)
+        else:
+            for index, addr in enumerate(option.data, start=1):
+                if addr in self.pool.hosts:
+                    self.pool.hosts.remove(addr)
 
     def get(self, option):
         if option.code in self.options:
