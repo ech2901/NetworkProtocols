@@ -2,7 +2,7 @@ from sys import platform
 
 TESTING = True
 
-if 'linux' in platform and not TESTING:
+if 'linux' in platform:
     from Servers.DHCP.Server import DHCPServer
     from Servers.DHCP import Options
 
