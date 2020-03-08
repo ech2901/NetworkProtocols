@@ -1,132 +1,17 @@
 from configparser import ConfigParser
-from ipaddress import ip_network, ip_address
+from ipaddress import ip_address
 from json import load, dump
-from sched import scheduler
 from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
-from threading import Thread
 
 from RawPacket import Ethernet, IPv4, UDP, MAC_Address
 from Servers import RawServer
 from Servers.DHCP import Options, Packet
+from Servers.DHCP.Classes import GarbageCollector, Pool
 
-defaults = ConfigParser()
-defaults.read(r'Servers/DHCP/config.ini')
-
-
-class GarbageCollector(Thread):
-    def __init__(self):
-        super().__init__()
-        self.schedule = scheduler()
-        self.keep_alive = True
-
-    def run(self):
-        while self.keep_alive:
-            self.schedule.run()
-
-    def insert(self, delay, action, *args):
-        self.schedule.enter(delay, 1, action, args)
-
-    def shutdown(self):
-        self.keep_alive = False
-        for event in self.schedule.queue:
-            self.schedule.cancel(event)
-
-
-class Pool(object):
-    def __init__(self, network='192.168.0.0', mask='255.255.255.0'):
-        self._network = ip_network(fr'{network}/{mask}')
-        self.hosts = list(self._network.hosts())
-
-        # IP/MAC reservations
-        self.reservations = dict()
-
-        # White/Blacklist handling
-        self.listing = list()
-        self.list_mode = 'b'
-
-    def reserve(self, mac, ip):
-
-        try:
-            self.hosts.remove(ip)
-            self.reservations[mac] = ip
-        except ValueError:
-            if mac in self.reservations:
-                pass
-            elif ip == self.broadcast:
-                pass
-            else:
-                print(f'IP {ip} not in network {self._network}')
-
-    def unreserve(self, mac):
-        self.reservations.pop(mac, None)
-
-    def is_reserved(self, mac):
-        return mac in self.reservations
-
-    def add_listing(self, mac):
-        if mac not in self.listing:
-            self.listing.append(mac)
-
-    def remove_listing(self, mac):
-        if mac in self.listing:
-            self.listing.remove(mac)
-
-    def toggle_listing_mode(self):
-        if self.list_mode == 'w':
-            self.list_mode = 'b'
-            return
-        self.list_mode = 'w'
-
-    def get_ip(self, mac, requested_ip=None):
-
-        if mac in self.listing:
-            if self.list_mode == 'b':
-                # If we have the listing and we're using a blacklist, don't give an IP
-                return None
-        elif self.list_mode == 'w':
-            # If we don't have the listing and we're using a whitelist, don't give an IP
-            return
-
-        try:
-            # Try to remove object from the reservations
-            return self.reservations[mac]
-
-        except KeyError:
-            # KeyError will be raised if trying to get
-            # a reservation that does not exists.
-            try:
-                self.hosts.remove(requested_ip)
-                return requested_ip
-
-            except ValueError:
-                # ValueError will be raised if trying to get
-                # an IP address that does not exists in our pool of hosts.
-                try:
-                    return self.hosts.pop(0)
-
-                except IndexError:
-                    # If the number of available addresses gets exhausted return None
-                    return None
-
-    def add_ip(self, ip):
-        if ip in self._network:
-            self.hosts.insert(0, ip)
-
-    @property
-    def broadcast(self):
-        return self._network.broadcast_address
-
-    @property
-    def netmask(self):
-        return self._network.netmask
-
-    @property
-    def network(self):
-        return self._network.network_address
-
-    def __contains__(self, item):
-        return item in self.hosts
+config = ConfigParser()
+config.read(r'Servers/DHCP/config.ini')
+defaults = config['DEFAULT']
 
 
 class DHCPHandler(BaseRequestHandler):
@@ -288,38 +173,37 @@ class DHCPServer(RawServer):
     server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
 
-    def __init__(self, interface=defaults.get('optional', 'interface'), **kwargs):
-        RawServer.__init__(self, interface, DHCPHandler)
+    def __init__(self, **kwargs):
+        defaults.update(kwargs)
+
+        RawServer.__init__(self, defaults.get('interface'), DHCPHandler)
 
         # Savefile
-        self.file = kwargs.get('savefile', defaults.get('optional', 'savefile'))
+        self.file = defaults.get('optional', 'savefile')
 
         # Server addressing information
-        self.server_ip = ip_address(kwargs.get('server_ip', defaults.get('ip addresses', 'server_ip')))
-        self.server_port = kwargs.get('server_port', defaults.getint('numbers', 'server_port'))
-        self.client_port = kwargs.get('client_port', defaults.getint('numbers', 'client_port'))
-        self.broadcast = kwargs.get('broadcast', defaults.getboolean('optional', 'broadcast'))
+        self.server_ip = defaults.get('ip addresses', 'server_ip')
+        self.server_port = defaults.getint('numbers', 'server_port')
+        self.client_port = defaults.getint('numbers', 'client_port')
+        self.broadcast = defaults.getboolean('optional', 'broadcast')
 
         # Server IP pool setup
-        self.pool = Pool(ip_address(kwargs.get('network', defaults.get('ip addresses', 'network'))),
-                         ip_address(kwargs.get('mask', defaults.get('ip addresses', 'mask'))))
+        self.pool = Pool(ip_address(defaults.get('ip addresses', 'network')),
+                         ip_address(defaults.get('ip addresses', 'mask')))
 
-        # Timing information
-        self.offer_hold_time = kwargs.get('offer_hold_time', defaults.getint('numbers', 'offer_hold_time'))
-        # Default lease time of 8 days
-        IPLeaseTime = kwargs.get('ipleasetime', defaults.getint('numbers', 'ipleasetime'))
-        # Default renew time of 4 days
-        RenewalT1 = kwargs.get('renewalt1', defaults.getint('numbers', 'renewalt1'))
-        # Default rebind time of 3 days
-        RenewalT2 = kwargs.get('renewalt2', defaults.getint('numbers', 'renewalt2'))
 
         self.register_server_option(Options.Subnet(self.pool.netmask))
         self.register_server_option(Options.BroadcastAddress(self.pool.broadcast))
         self.register_server_option(Options.DHCPServerID(self.server_ip))
 
-        self.register_server_option(Options.IPLeaseTime(IPLeaseTime))
-        self.register_server_option(Options.RenewalT1(RenewalT1))
-        self.register_server_option(Options.RenewalT2(RenewalT2))
+        # Timing information
+        self.offer_hold_time = defaults.getint('numbers', 'offer_hold_time')
+        # Default lease time of 8 days
+        self.register_server_option(Options.IPLeaseTime(defaults.getint('numbers', 'ipleasetime')))
+        # Default renew time of 4 days
+        self.register_server_option(Options.RenewalT1(defaults.getint('numbers', 'renewalt1')))
+        # Default rebind time of 3 days
+        self.register_server_option(Options.RenewalT2(defaults.getint('numbers', 'renewalt2')))
 
         self.gb = GarbageCollector()
 
