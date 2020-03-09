@@ -16,6 +16,9 @@ class GarbageCollector(Thread):
     def insert(self, delay, action, *args):
         self.schedule.enter(delay, 1, action, args)
 
+    def insertabs(self, abstime, action, *args):
+        self.schedule.enterabs(abstime, 1, action, args)
+
     def shutdown(self):
         self.keep_alive = False
         for event in self.schedule.queue:

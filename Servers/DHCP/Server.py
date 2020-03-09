@@ -1,6 +1,5 @@
 from configparser import ConfigParser
 from ipaddress import ip_address
-from json import load, dump
 from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
 
@@ -34,33 +33,26 @@ class DHCPHandler(BaseRequestHandler):
     def handle(self):
         if self.is_dhcp:
 
-            packet = None
-
-            if Options.DHCPMessageType(1) in self.packet.options:
-                packet = self.handle_disco()
-            elif Options.DHCPMessageType(3) in self.packet.options:
-                packet = self.handle_req()
-            elif Options.DHCPMessageType(4) in self.packet.options:
-                packet = self.handle_decline()
-            elif Options.DHCPMessageType(7) in self.packet.options:
-                packet = self.handle_release()
-            elif Options.DHCPMessageType(8) in self.packet.options:
-                packet = self.handle_inform()
+            packet, hostname = self.build_packet()
 
             if packet:
 
-                # Building UDP Packet
+                if Options.DHCPMessageType(1) in self.packet.options:
+                    self.server.register_offer(packet, hostname)
+                elif Options.DHCPMessageType(3) in self.packet.options:
+                    self.server.register_client(packet, hostname)
 
+
+                # Building UDP Packet
                 udp = UDP(self.server.server_port, self.server.client_port, packet.build())
 
                 # Building IP packet
-
                 ip = IPv4(self.server.server_ip, ip_address('255.255.255.255'), udp)
 
                 if self.packet.hops:
                     packet.hops = self.packet.hops
                     packet.giaddr = self.packet.giaddr
-                    ip.destination = packet.giaddr
+                    ip.destination = self.packet.giaddr
 
                 elif self.packet.ciaddr._ip:
                     # If client has a put a reachable IP address in this field
@@ -68,7 +60,6 @@ class DHCPHandler(BaseRequestHandler):
                     ip.destination = self.packet.ciaddr
 
                 # Building Ethernet packet
-
                 eth = Ethernet(self.packet.chaddr, self.server.server_address[-1], ip)
 
                 if self.server.broadcast or self.packet.broadcast:
@@ -77,92 +68,74 @@ class DHCPHandler(BaseRequestHandler):
                 eth.calc_checksum()
                 self.request[1].send(eth.build())
 
-    def handle_disco(self):
-        # Building DHCP offer Packet
+    def build_packet(self):
 
-        offer = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source,
-                                  broadcast=self.packet.broadcast or self.server.broadcast)
-        offer.options.append(Options.DHCPMessageType(2))
-        offer.options.extend(self.server.server_options.values())
+        packet = Packet.DHCPPacket(
+            op=2,
+            xid=self.packet.xid,
+            _chaddr=self.eth.source,
+            broadcast=self.packet.broadcast or self.server.broadcast
+        )
 
-        client_hostname = b''
-        offer_ip = None
+        if Options.DHCPMessageType(1) in self.packet.options:
+            packet.options.append(Options.DHCPMessageType(2))
+            client_hostname = b''
+            client_ip = self.server.pool.get_ip(packet.chaddr)
 
-        for option in self.packet.options:
-            if option.code == Options.ParameterRequestList.code:
-                for code in option.data:
-                    if code in self.server.options:
-                        offer.options.append(self.server.options[code])
+        elif Options.DHCPMessageType(3) in self.packet.options:
+            packet.options.append(Options.DHCPMessageType(5))
+            try:
+                client_hostname, client_ip = self.server.offers[(self.packet.chaddr, self.packet.xid)]
+            except KeyError:
+                return
 
-            if option.code == Options.RequestedIP.code:
-                offer_ip = option.data
-
-            if option.code == Options.HostName.code:
-                client_hostname = option.data
-
-        offer.options.append(Options.End())
-
-        offer.siaddr = self.server.server_ip
-        offer.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
-
-        if offer.yiaddr:
-            # If we're offering a valid IP (EG not None), proceed with offer
-            self.server.register_offer(offer.chaddr, offer.xid, offer.yiaddr, client_hostname)
-            return offer
-
-    def handle_req(self):
-
-        # Building DHCP acknowledge Packet
-
-        ack = Packet.DHCPPacket(op=2, xid=self.packet.xid, _chaddr=self.eth.source,
-                                broadcast=self.packet.broadcast or self.server.broadcast)
-        ack.options.append(Options.DHCPMessageType(5))
-        ack.options.extend(self.server.server_options.values())
-
-        offer_ip, client_hostname = self.server.offers[(ack.chaddr, ack.xid)]
-        req_ip = None
+        else:
+            return
 
         for option in self.packet.options:
-            if option.code == Options.ParameterRequestList.code:
-                for code in option.data:
-                    if code in self.server.options:
-                        ack.options.append(self.server.options[code])
-
-            if option.code == Options.RequestedIP.code:
-                # If the client didn't request a specific IP in the discover packet
-                req_ip = option.data
-
-            if option.code == Options.HostName.code:
-                # If the client didn't specify a hostname in the discover packet
-                client_hostname = option.data
-
             if option.code == Options.DHCPServerID.code:
                 if option.data != self.server.server_ip:
                     # If the client is trying to request from a server other than us.
                     return None
 
-        ack.options.append(Options.End())
+            elif option.code == Options.RequestedIP.code:
+                if option.data != client_ip:
+                    self.server.pool.add_ip(client_ip)
+                    client_ip = self.server.pool.get_ip(packet.chaddr, option.data)
 
-        ack.siaddr = self.server.server_ip
+            elif option.code == Options.HostName.code:
+                client_hostname = option.data
 
-        if req_ip and req_ip != offer_ip:
-            ack.yiaddr = self.server.pool.get_ip(self.packet.chaddr, offer_ip)
-        else:
-            ack.yiaddr = offer_ip
+            elif option.code == Options.ParameterRequestList.code:
+                for code in option.data:
+                    try:
+                        packet.options.append(self.server.options[code])
+                    except KeyError:
+                        # If we don't have the option as part of the server, continue without issue.
+                        pass
 
-        if ack.yiaddr:
-            self.server.register_client(ack.chaddr, client_hostname, ack.yiaddr)
+        for required in self.server.required:
+            try:
+                option = self.server.options[required]
+            except KeyError:
+                # Should not !-!-! ever !-!-! happen
+                print('Error: Requested Required option not available.')
+                print(f'Required Option Requested: {required}')
+            else:
+                # If no error thrown do this.
+                if option in packet.options:
+                    continue
+                packet.options.append(option)
 
-            return ack
+        packet.options.append(Options.End())
 
-    def handle_decline(self):
-        pass
+        if client_ip:
+            packet.siaddr = self.server.server_ip
+            packet.yiaddr = client_ip
 
-    def handle_release(self):
-        pass
+            return packet, client_hostname
 
-    def handle_inform(self):
-        pass
+
 
 
 class DHCPServer(RawServer):
@@ -170,8 +143,8 @@ class DHCPServer(RawServer):
     clients = dict()  # Keys will be a tuple of (MAC address, ClientID). ClientID defaults to b''
     offers = dict()  # Keys will be a tuple of (MAC Address, XID).
 
-    server_options = dict()
     options = dict()  # Keys will be an int being the code of the option.
+    required = list()
 
     def __init__(self, **kwargs):
         defaults.update(kwargs)
@@ -188,38 +161,81 @@ class DHCPServer(RawServer):
         self.broadcast = defaults.getboolean('optional', 'broadcast')
 
         # Server IP pool setup
-        self.pool = Pool(ip_address(defaults.get('ip addresses', 'network')),
-                         ip_address(defaults.get('ip addresses', 'mask')))
+        self.pool = Pool(
+            ip_address(
+                defaults.get('ip addresses', 'network')
+            ),
+            ip_address(
+                defaults.get('ip addresses', 'mask')
+            )
+        )
 
+        self.register(
+            Options.Subnet(
+                self.pool.netmask
+            ),
+            required=True
+        )
 
-        self.register_server_option(Options.Subnet(self.pool.netmask))
-        self.register_server_option(Options.BroadcastAddress(self.pool.broadcast))
-        self.register_server_option(Options.DHCPServerID(self.server_ip))
+        self.register(
+            Options.BroadcastAddress(
+                self.pool.broadcast
+            ),
+            required=True
+        )
+
+        self.register(
+            Options.DHCPServerID(
+                self.server_ip
+            ),
+            required=True
+        )
 
         # Timing information
         self.offer_hold_time = defaults.getint('numbers', 'offer_hold_time')
         # Default lease time of 8 days
-        self.register_server_option(Options.IPLeaseTime(defaults.getint('numbers', 'ipleasetime')))
+        self.register(
+            Options.IPLeaseTime(
+                defaults.getint('numbers', 'ipleasetime')
+            ),
+            required=True
+        )
+
         # Default renew time of 4 days
-        self.register_server_option(Options.RenewalT1(defaults.getint('numbers', 'renewalt1')))
+        self.register(
+            Options.RenewalT1(
+                defaults.getint('numbers', 'renewalt1')
+            ),
+            required=True
+        )
+
         # Default rebind time of 3 days
-        self.register_server_option(Options.RenewalT2(defaults.getint('numbers', 'renewalt2')))
+        self.register(
+            Options.RenewalT2(
+                defaults.getint('numbers', 'renewalt2')
+            ),
+            required=True
+        )
 
         self.gb = GarbageCollector()
 
-    def register_offer(self, address, xid, offer_ip, client_hostname):
-        self.offers[(address, xid)] = (offer_ip, client_hostname)
-        self.gb.insert(self.offer_hold_time, self.release_offer, address, xid)
+    @property
+    def required_options(self):
+        return [self.get(i) for i in self.required]
+
+    def register_offer(self, packet, hostname, ):
+        self.offers[(packet.chaddr, packet.xid)] = (hostname, packet.yiaddr)
+        self.gb.insert(self.offer_hold_time, self.release_offer, packet.yiaddr, packet.xid)
 
     def release_offer(self, address, xid):
         # clear short term reservation of ip address.
         if (address, xid) in self.offers:
             self.pool.add_ip(self.offers.pop((address, xid))[0])
 
-    def register_client(self, address, clientid, client_ip):
-        self.release_client(address, clientid)  # Release previously given IP client may have for reuse
-        self.clients[(address, clientid)] = client_ip
-        self.gb.insert(self.get(Options.IPLeaseTime), self.release_client, address, clientid, client_ip)
+    def register_client(self, packet, clientid):
+        self.release_client(packet.chaddr, clientid)  # Release previously given IP client may have for reuse
+        self.clients[(packet.chaddr, clientid)] = packet.yiaddr
+        self.gb.insert(self.get(Options.IPLeaseTime), self.release_client, packet.chaddr, clientid, packet.yiaddr)
 
     def release_client(self, address, clientid, client_ip=None):
         # clear long term reservation of ip address.
@@ -232,31 +248,11 @@ class DHCPServer(RawServer):
                 # If we're just trying to clear the client from the server.
                 self.pool.add_ip(self.clients.pop((address, clientid)))
 
-    def register_server_option(self, option):
-        # These options always are included in server DHCP packets
-        self.server_options[option.code] = option
-
-        try:
-            try:
-                if option.data in self.pool._network:
-                    # If option data is an ip address, reserve it
-                    self.pool.reserve(option.__class__.__name__, option.data)
-            except AttributeError:
-                # Otherwise, try to iterate through the data as a list
-                # and if it is an ip address in the network pool
-                # reserve it
-                for index, addr in enumerate(option.data, start=1):
-                    if addr not in self.pool._network:
-                        continue
-                    self.pool.reserve(f'{option.code}-{index}', addr)
-
-        except:
-            # option data isn't an IP Address
-            pass
-
-    def register(self, option):
+    def register(self, option, required=False):
         # These options are included in server DHCP packets by request of client
         self.options[option.code] = option
+        if required:
+            self.required.append(option.code)
 
         try:
             try:
@@ -279,9 +275,6 @@ class DHCPServer(RawServer):
     def get(self, option):
         if option.code in self.options:
             return self.options[option.code].data
-
-        elif option.code in self.server_options:
-            return self.server_options[option.code].data
 
     def reserve(self, mac, ip):
         mac = MAC_Address(mac)
@@ -310,91 +303,11 @@ class DHCPServer(RawServer):
         super().shutdown()
 
     def save(self):
-        data = dict()
-
-        setup = dict()
-        setup['server_ip'] = self.server_ip._ip
-        setup['server_port'] = self.server_port
-        setup['client_port'] = self.client_port
-        setup['broadcast'] = self.broadcast
-        setup['network'] = self.pool.network._ip
-        setup['mask'] = self.pool.netmask._ip
-        setup['offer_hold_time'] = self.offer_hold_time
-        setup['ipleasetime'] = self.get(Options.IPLeaseTime)
-        setup['renewalt1'] = self.get(Options.RenewalT1)
-        setup['renewalt2'] = self.get(Options.RenewalT2)
-        data['setup_info'] = setup
-
-        reservations = dict()
-        for address, ip in self.pool.reservations.items():
-            try:
-                # If we're saving a MAC_Address instance
-                reservations[address.address] = ip._ip
-            except AttributeError:
-                # If we're trying to save something other than a MAC_Address
-                continue
-
-
-        data['reservations'] = reservations
-
-        listing = list()
-        for listing in self.pool.listing:
-            listing.append(listing.address)
-        data['listings'] = (listing, self.pool.list_mode)
-
-        data['server_options'] = [
-            list(option.pack()) for option in self.server_options.values()
-        ]
-
-        data['options'] = [
-            list(option.pack()) for option in self.options.values()
-        ]
-
-
-        with open(self.file, 'w') as file:
-            dump(data, file)
+        pass
 
     @classmethod
     def load(cls, savefile, **kwargs):
-        try:
-            with open(savefile, 'r') as file:
-                data = load(file)
-
-            setup_info = data['setup_info']
-            reservations = data['reservations']
-            listing, list_mode = data['listings']
-
-            server_options_bytes = b''.join([bytes(option_data) for option_data in data['server_options']])
-            server_options = Options.BaseOption.unpack(server_options_bytes)
-
-            options_bytes = b''.join([bytes(option_data) for option_data in data['options']])
-            options = Options.BaseOption.unpack(options_bytes)
-
-            setup_info.update(kwargs)
-
-            out = cls(savefile=savefile, **setup_info)
-
-            for mac, ip in reservations.items():
-                out.reserve(mac, ip)
-
-            for mac in listing:
-                out.add_listing(mac)
-
-            out.pool.list_mode = list_mode
-
-            for option in server_options:
-                out.register_server_option(option)
-
-            for option in options:
-                out.register(option)
-
-            return out
-
-        except FileNotFoundError:
-            return cls(**kwargs)
-
-        except Exception as e:
-            print(f'{e.__class__.__name__}: {e}')
+        pass
 
     def __enter__(self):
         self.start()

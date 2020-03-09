@@ -1,13 +1,14 @@
-from collections import namedtuple
 from dataclasses import dataclass, field
 from ipaddress import ip_address, ip_interface
 from struct import pack, unpack
 from typing import Dict, List
 
-Option = namedtuple('Option', ['code', 'length', 'data'])
-
 
 class BaseOption(object):
+    code: field
+    length: field
+    data: field
+
     classes: Dict = dict()
 
     def __init_subclass__(cls, **kwargs):
@@ -19,17 +20,17 @@ class BaseOption(object):
         out = []
         option_list = list(data)
 
-        while (len(option_list)):
+        while len(option_list):
             code = option_list.pop(0)
 
-            if (code == 0 or code == 255):
+            if code == 0 or code == 255:
                 out.append(cls.classes[code]())
                 continue
 
             length = option_list.pop(0)
             data = bytes([option_list.pop(0) for _ in range(length)])
 
-            if (code in cls.classes):
+            if code in cls.classes:
                 out.append(cls.classes[code](data))
             else:
                 out.append(cls.classes[-1](code, length, data))
@@ -85,9 +86,9 @@ class TimeOffset(BaseOption):
     data: int
 
     def __init__(self, data):
-        if (type(data) == int):
+        if type(data) == int:
             self.data = data
-        elif (type(data) == bytes):
+        elif type(data) == bytes:
             self.data = int.from_bytes(data[:4], 'big')
         else:
             raise TypeError(f'data must be of type int or bytes. Recieved a {type(data)} object instead.')
@@ -105,7 +106,7 @@ class Router(BaseOption):
     def __init__(self, address, *addresses):
         self.data = list()
 
-        if (type(address) == bytes):
+        if type(address) == bytes:
             self.length = len(address)
             addresses = unpack(f'! {len(address) // 4}L', address)
         else:
@@ -177,9 +178,9 @@ class BootFileSize(BaseOption):
     data: int
 
     def __init__(self, data):
-        if (type(data) == int):
+        if type(data) == int:
             self.data = data
-        elif (type(data) == bytes):
+        elif type(data) == bytes:
             self.data = int.from_bytes(data[:2], 'big')
         else:
             raise TypeError(f'data must be of type int or bytes. Recieved a {type(data)} object instead.')
@@ -257,7 +258,7 @@ class PolicyFilter(BaseOption):
     def __init__(self, address, *addresses):
         self.data = list()
 
-        if (type(address) == bytes):
+        if type(address) == bytes:
             self.length = len(address)
             addresses = unpack(f'! {len(address) // 8}L', address)
         else:
@@ -283,9 +284,9 @@ class DefaultTTL(BaseOption):
     data: int = field(default=255)
 
     def __init__(self, data):
-        if (type(data) == bytes):
+        if type(data) == bytes:
             self.data = data[0]
-        elif (type(data) == int):
+        elif type(data) == int:
             self.data = data
         else:
             raise TypeError(f'data must be of type int or bytes. Recieved a {type(data)} object instead.')
@@ -308,9 +309,9 @@ class MTUTable(BaseOption):
     def __init__(self, value, *values):
         self.data = list()
 
-        if (type(value) == bytes):
+        if type(value) == bytes:
             values = unpack(f'! {len(value) // 2}H', value)
-        elif (type(value) == int):
+        elif type(value) == int:
             self.data.append(value)
         else:
             raise TypeError(f'data must be of type int or bytes. Recieved a {type(value)} object instead.')
@@ -573,11 +574,11 @@ class ParameterRequestList(BaseOption):
     def __init__(self, code, *codes):
         self.data = list()
 
-        if (type(code) == bytes):
+        if type(code) == bytes:
             codes = list(code)
-        elif (type(code) == list):
+        elif type(code) == list:
             codes = code
-        elif (type(code) == int):
+        elif type(code) == int:
             self.data.append(code)
         else:
             raise TypeError(f'data must be of type bytes, list, or int. Recieved a {type(code)} object instead.')
