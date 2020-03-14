@@ -155,18 +155,18 @@ class DHCPServer(RawServer):
         self.file = defaults.get('optional', 'savefile')
 
         # Server addressing information
-        self.server_ip = defaults.get('ip addresses', 'server_ip')
-        self.server_port = defaults.getint('numbers', 'server_port')
-        self.client_port = defaults.getint('numbers', 'client_port')
-        self.broadcast = defaults.getboolean('optional', 'broadcast')
+        self.server_ip = defaults.get('server_ip')
+        self.server_port = defaults.getint('server_port')
+        self.client_port = defaults.getint('client_port')
+        self.broadcast = defaults.getboolean('broadcast')
 
         # Server IP pool setup
         self.pool = Pool(
             ip_address(
-                defaults.get('ip addresses', 'network')
+                defaults.get('network')
             ),
             ip_address(
-                defaults.get('ip addresses', 'mask')
+                defaults.get('mask')
             )
         )
 
@@ -192,11 +192,11 @@ class DHCPServer(RawServer):
         )
 
         # Timing information
-        self.offer_hold_time = defaults.getint('numbers', 'offer_hold_time')
+        self.offer_hold_time = defaults.getint('offer_hold_time')
         # Default lease time of 8 days
         self.register(
             Options.IPLeaseTime(
-                defaults.getint('numbers', 'ipleasetime')
+                defaults.getint('ipleasetime')
             ),
             required=True
         )
@@ -204,7 +204,7 @@ class DHCPServer(RawServer):
         # Default renew time of 4 days
         self.register(
             Options.RenewalT1(
-                defaults.getint('numbers', 'renewalt1')
+                defaults.getint('renewalt1')
             ),
             required=True
         )
@@ -212,10 +212,14 @@ class DHCPServer(RawServer):
         # Default rebind time of 3 days
         self.register(
             Options.RenewalT2(
-                defaults.getint('numbers', 'renewalt2')
+                defaults.getint('renewalt2')
             ),
             required=True
         )
+
+        # Reserve server MAC / IP so no other client can take it.
+        self.reserve(self.mac_address, self.server_ip)
+
 
         self.gb = GarbageCollector()
 
