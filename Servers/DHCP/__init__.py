@@ -1,9 +1,13 @@
 from sys import platform
 
-TESTING = False
+TESTING = True
 
-if ('linux' not in platform and not TESTING):
+if TESTING:
+    pass
+
+elif 'linux' not in platform:
     raise OSError('DHCP can only be used in a linux environment.')
 
-from Servers.DHCP.Server import DHCPServer
-from Servers.DHCP import Options
+else:
+    from Servers.DHCP.Server import DHCPServer
+    from Servers.DHCP import Options

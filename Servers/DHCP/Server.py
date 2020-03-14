@@ -155,7 +155,7 @@ class DHCPServer(RawServer):
         self.file = defaults.get('optional', 'savefile')
 
         # Server addressing information
-        self.server_ip = defaults.get('server_ip')
+        self.server_ip = ip_address(defaults.get('server_ip'))
         self.server_port = defaults.getint('server_port')
         self.client_port = defaults.getint('client_port')
         self.broadcast = defaults.getboolean('broadcast')
