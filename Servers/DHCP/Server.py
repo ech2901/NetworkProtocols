@@ -2,6 +2,7 @@ from configparser import ConfigParser
 from ipaddress import ip_address
 from socket import IPPROTO_UDP
 from socketserver import BaseRequestHandler
+from subprocess import run
 
 from RawPacket import Ethernet, IPv4, UDP, MAC_Address
 from Servers import RawServer
@@ -217,8 +218,8 @@ class DHCPServer(RawServer):
             required=True
         )
 
-        # Reserve server MAC / IP so no other client can take it.
-        self.reserve(self.mac_address, self.server_ip)
+        # Set DHCP Server's IP and netmask manually so that it doesn't have to talk to DHCP server.
+        run(['ifconfig', self.interface, self.server_ip, 'netmask', self.pool.network])
 
 
         self.gb = GarbageCollector()

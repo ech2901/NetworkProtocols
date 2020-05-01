@@ -69,6 +69,7 @@ if('linux' in platform):
             BaseServer.__init__(self, (interface, 0), RequestHandlerClass)
             Thread.__init__(self, target=self.serve_forever)
 
+            self.interface = interface
             self.socket = socket.socket(self.address_family,
                                         self.socket_type,
                                         htons(ethertype))
