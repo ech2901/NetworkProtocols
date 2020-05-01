@@ -345,6 +345,6 @@ class ResourceRecord(object):
     def __str__(self):
         out = 'Record'.center(64, '-')
         out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
-        out = f'{out}\nTTL: {self.ttl}\nRecord Data: {self._type.factory(self.rdata).decode()}'
+        out = f'{out}\nTTL: {self.ttl}\nRecord Data: {self._type.factory(self.rdata)}'
         return out
 
