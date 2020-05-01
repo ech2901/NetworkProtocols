@@ -40,7 +40,7 @@ def pack_name(data):
     return b'\x00'
 
 
-class Types(Enum):
+class Type(Enum):
     A = (1, 'IPv4 Address', ip_address)
     NS = (2, 'Authoritative Name Server')
     MD = (3, 'Mail Destinatin (Obsolete)')
@@ -139,7 +139,7 @@ class Types(Enum):
         return pack('! H', self._value_)
 
 
-class Classes(Enum):
+class Class(Enum):
     IN = (1, 'Internet')
     CH = (3, 'Chaos')
     HS = (4, 'Hesoid')
@@ -288,8 +288,8 @@ class Packet(object):
 @dataclass(repr=False)
 class Query(object):
     name: bytes
-    _type: Types
-    _class: Classes
+    _type: Type
+    _class: Class
 
     @classmethod
     def from_bytes(cls, data, offset_copy=None):
@@ -297,7 +297,7 @@ class Query(object):
 
         _type, _class = unpack('! 2H', data[:4])
 
-        return cls(name, Types(_type), Classes(_class)), data[4:]
+        return cls(name, Type(_type), Class(_class)), data[4:]
 
     def to_bytes(self):
         name = pack_name(self.name)
@@ -315,8 +315,8 @@ class Query(object):
 @dataclass(repr=False)
 class ResourceRecord(object):
     name: bytes
-    _type: Types
-    _class: Classes
+    _type: Type
+    _class: Class
     ttl: int
     rdata_length: int
     rdata: bytes
@@ -329,7 +329,7 @@ class ResourceRecord(object):
 
         rdata = data[10:10 + length]
 
-        return cls(name, Types(_type), Classes(_class), ttl, length, rdata), data[10 + length:]
+        return cls(name, Type(_type), Class(_class), ttl, length, rdata), data[10 + length:]
 
     def to_bytes(self):
         name = pack_name(self.name)

@@ -1,11 +1,11 @@
 from os import urandom
 from socket import socket, AF_INET, SOCK_DGRAM, timeout
 
-from Clients.DNS.Classes import Query, Types, Packet
+from Clients.DNS.Classes import Query, Type, Class, Packet
 
 
 def lookup(url, *servers, **kwargs):
-    request = Query(url.encode(), kwargs.get('type', Types.A), kwargs.get('class', Classes.IN))
+    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
     packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
                     0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
                     questions=[request])
@@ -30,5 +30,5 @@ def lookup(url, *servers, **kwargs):
 def ilookup(ip, *servers, **kwargs):
     ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
 
-    kwargs['type'] = Types.PTR
+    kwargs['type'] = Type.PTR
     return lookup(ip, *servers, **kwargs)
