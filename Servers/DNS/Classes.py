@@ -68,7 +68,7 @@ class Type(Enum):
     KEY = (25, 'IPv4 Address')
     PX = (26, 'IPv4 Address')
     GPOS = (27, 'IPv4 Address')
-    AAAA = (28, 'IPv4 Address', ip_address)
+    AAAA = (28, 'IPv6 Address', ip_address)
     LOC = (29, 'IPv4 Address')
     NXT = (30, 'IPv4 Address')
     EID = (31, 'IPv4 Address')
@@ -312,7 +312,6 @@ class Query(object):
         out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
         return out
 
-
 @dataclass(repr=False)
 class ResourceRecord(object):
     name: bytes
@@ -348,3 +347,4 @@ class ResourceRecord(object):
         out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
         out = f'{out}\nTTL: {self.ttl}\nRecord Data: {self._type.factory(self.rdata)}'
         return out
+

@@ -68,7 +68,7 @@ class Type(Enum):
     KEY = (25, 'IPv4 Address')
     PX = (26, 'IPv4 Address')
     GPOS = (27, 'IPv4 Address')
-    AAAA = (28, 'IPv4 Address', ip_address)
+    AAAA = (28, 'IPv6 Address', ip_address)
     LOC = (29, 'IPv4 Address')
     NXT = (30, 'IPv4 Address')
     EID = (31, 'IPv4 Address')
