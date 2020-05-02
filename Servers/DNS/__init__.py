@@ -10,12 +10,14 @@ class UDPDNSHandler(BaseRequestHandler):
 
     def setup(self):
         self.packet = Packet.from_bytes(self.request[0])
+        print(f'{self.client_address[0]} connected.')
 
     def handle(self):
         records = list()
         auth_rr = list()
         add_rr = list()
         for query in self.packet.questions:
+            print(f'{self.client_address[0]} requested {query.name.decode()}.')
             try:
                 auth_rr.append(self.server.records[query.name][query._type][query._class])
             except KeyError:
@@ -23,12 +25,12 @@ class UDPDNSHandler(BaseRequestHandler):
                     add_rr.append(self.server.cache[query.name][query._type][query._class])
                 except KeyError:
                     try:
-                        if self.packet.opcode == 0:
-                            add_rr.append(self.server.lookup(query))
-                        elif self.packet.opcode == 1:
-                            add_rr.append(self.server.ilookup(query))
+                        add_rr.append(self.server.lookup(query))
                     except FileNotFoundError:
-                        pass
+                        return
+                    except Exception as e:
+                        print(e)
+                        return
 
         records.extend(auth_rr)
         records.extend(add_rr)
