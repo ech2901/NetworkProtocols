@@ -3,7 +3,7 @@ from os import urandom
 from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, timeout
 from struct import pack, unpack
 
-from Clients.DNS.Classes import Query, Type, Class, Packet
+from Clients.DNS.Classes import Query, Type, Class, Packet, ResourceRecord
 
 
 def lookup(url, *servers, **kwargs):
@@ -26,13 +26,6 @@ def lookup(url, *servers, **kwargs):
         resp_packet = Packet.from_bytes(data)
         if resp_packet.identification == packet.identification:
             return resp_packet
-
-
-def ilookup(ip, *servers, **kwargs):
-    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
-
-    kwargs['type'] = Type.PTR
-    return lookup(ip, *servers, **kwargs)
 
 
 def lookup_tcp(url, *servers, **kwargs):
@@ -59,13 +52,6 @@ def lookup_tcp(url, *servers, **kwargs):
                     return resp_packet
         except timeout:
             continue
-
-
-def ilookup_tcp(ip, *servers, **kwargs):
-    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
-
-    kwargs['type'] = Type.PTR
-    return lookup_tcp(ip, *servers, **kwargs)
 
 
 def lookup_ssl(url, *servers, **kwargs):
@@ -97,9 +83,3 @@ def lookup_ssl(url, *servers, **kwargs):
         except timeout:
             continue
 
-
-def ilookup_ssl(ip, *servers, **kwargs):
-    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
-
-    kwargs['type'] = Type.PTR
-    return lookup_ssl(ip, *servers, **kwargs)

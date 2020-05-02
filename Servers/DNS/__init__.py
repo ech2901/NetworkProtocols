@@ -1,105 +1,70 @@
-import ssl
 from os import urandom
-from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, timeout
-from struct import pack, unpack
+from socket import socket, AF_INET, SOCK_DGRAM, timeout
+from socketserver import BaseRequestHandler
 
-from Clients.DNS.Classes import Query, Type, Class, Packet
-
-
-def lookup(url, *servers, **kwargs):
-    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
-    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
-                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
-                    questions=[request])
-
-    sock = socket(AF_INET, SOCK_DGRAM)
-    sock.settimeout(kwargs.get('timeout', 1))
-
-    for server in servers:
-        sock.sendto(packet.to_bytes(), (server, 53))
-
-        try:
-            data, addr = sock.recvfrom(65536)
-        except timeout:
-            continue
-
-        resp_packet = Packet.from_bytes(data)
-        if resp_packet.identification == packet.identification:
-            return resp_packet
+from Servers import UDPServer
+from Servers.DNS.Classes import Packet
 
 
-def ilookup(ip, *servers, **kwargs):
-    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
+class UDPDNSHandler(BaseRequestHandler):
 
-    kwargs['type'] = Type.PTR
-    return lookup(ip, *servers, **kwargs)
+    def setup(self):
+        self.packet = Packet.from_bytes(self.request[0])
 
+    def handle(self):
+        records = list()
+        auth_rr = list()
+        add_rr = list()
+        for query in self.packet.questions:
+            try:
+                auth_rr.append(self.server.records[query.name][query._type][query._class])
+            except KeyError:
+                try:
+                    add_rr.append(self.server.cache[query.name][query._type][query._class])
+                except KeyError:
+                    try:
+                        if self.packet.opcode == 0:
+                            add_rr.append(self.server.lookup(query))
+                        elif self.packet.opcode == 1:
+                            add_rr.append(self.server.ilookup(query))
+                    except FileNotFoundError:
+                        pass
 
-def lookup_tcp(url, *servers, **kwargs):
-    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
-    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
-                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
-                    questions=[request])
+        records.extend(auth_rr)
+        records.extend(add_rr)
 
-    for server in servers:
-        try:
-            with socket(AF_INET, SOCK_STREAM) as sock:
-                sock.connect((server, 53))
-                sock.settimeout(kwargs.get('timeout', 1))
+        packet = Packet(self.packet.identification, 1, self.packet.opcode, False,
+                        False, self.packet.rd, False, True, False, 0,
+                        self.packet.questions, records, auth_rr, add_rr)
 
-                send_data = packet.to_bytes()
-
-                sock.send(pack('! H', len(send_data)) + send_data)
-
-                size = unpack('! H', sock.recv(2))[0]
-                data = sock.recv(size)
-
-                resp_packet = Packet.from_bytes(data)
-                if resp_packet.identification == packet.identification:
-                    return resp_packet
-        except timeout:
-            continue
-
-
-def ilookup_tcp(ip, *servers, **kwargs):
-    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
-
-    kwargs['type'] = Type.PTR
-    return lookup_tcp(ip, *servers, **kwargs)
+        self.request[1].sendto(packet.to_bytes(), self.client_address)
 
 
-def lookup_ssl(url, *servers, **kwargs):
-    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
-    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
-                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
-                    questions=[request])
+class UDPDNSServer(UDPServer):
+    def __init__(self, ip, *servers):
+        UDPServer.__init__(self, ip, 53, UDPDNSHandler)
+        self.servers = servers
+        self.records = dict()
+        self.cache = dict()
 
-    context = ssl.create_default_context()
+    def lookup(self, request):
+        packet = Packet(int.from_bytes(urandom(2), 'big'),
+                        0, 0, rd=True,
+                        questions=[request])
 
-    for server in servers:
-        try:
-            with socket(AF_INET, SOCK_STREAM) as sock:
-                sock.connect((server, 853))
-                sock.settimeout(kwargs.get('timeout', 1))
-                with context.wrap_socket(sock, server_hostname=server) as s_sock:
-                    s_sock.do_handshake()
+        sock = socket(AF_INET, SOCK_DGRAM)
+        sock.settimeout(1)
 
-                    send_data = packet.to_bytes()
+        for server in self.servers:
+            sock.sendto(packet.to_bytes(), (server, 53))
 
-                    s_sock.send(pack('! H', len(send_data)) + send_data)
+            try:
+                data, addr = sock.recvfrom(65536)
+            except timeout:
+                continue
 
-                    size = unpack('! H', s_sock.recv(2))[0]
-                    data = s_sock.recv(size)
+            resp_packet = Packet.from_bytes(data)
+            if resp_packet.identification == packet.identification:
+                return resp_packet.answer_rrs[0]
 
-                    resp_packet = Packet.from_bytes(data)
-                    if resp_packet.identification == packet.identification:
-                        return resp_packet
-        except timeout:
-            continue
-
-
-def ilookup_ssl(ip, *servers, **kwargs):
-    ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
-
-    kwargs['type'] = Type.PTR
-    return lookup_ssl(ip, *servers, **kwargs)
+        raise FileNotFoundError
