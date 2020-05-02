@@ -19,32 +19,42 @@ class UDPDNSHandler(BaseRequestHandler):
         for query in self.packet.questions:
             print(f'{self.client_address[0]} requested {query.name.decode()}.')
             try:
-                auth_rr.append(self.server.records[query.name][query._type][query._class])
+                record = self.server.records[query.name][query._type][query._class]
+                print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
+                auth_rr.append(record)
             except KeyError:
                 try:
-                    add_rr.append(self.server.cache[query.name][query._type][query._class])
+                    record = self.server.cache[query.name][query._type][query._class]
+                    print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
+                    add_rr.append(record)
                 except KeyError:
                     try:
-                        add_rr.append(self.server.lookup(query))
+                        record = self.server.lookup(query)
+                        print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
+                        add_rr.append(record)
                     except FileNotFoundError:
-                        return
+                        print(f'No record found for {query.name.decode()}')
                     except Exception as e:
-                        print(e)
-                        return
+                        print(f'Exception while looking up {query.name.decode()}')
+                        continue
 
         records.extend(auth_rr)
         records.extend(add_rr)
 
-        packet = Packet(self.packet.identification, 1, self.packet.opcode, False,
-                        False, self.packet.rd, False, True, False, 0,
-                        self.packet.questions, records, auth_rr, add_rr)
+        self.packet.qr = 1
+        self.packet.answer_rrs = records
+        self.packet.authority_rrs = auth_rr
+        self.packet.additional_rrs = add_rr
 
-        self.request[1].sendto(packet.to_bytes(), self.client_address)
+        self.request[1].sendto(self.packet.to_bytes(), self.client_address)
 
 
 class UDPDNSServer(UDPServer):
-    def __init__(self, ip, *servers):
-        UDPServer.__init__(self, ip, 53, UDPDNSHandler)
+    def __init__(self, timeout=4, *servers):
+        UDPServer.__init__(self, '', 53, UDPDNSHandler)
+
+        self.timeout = timeout
+
         self.servers = servers
         self.records = dict()
         self.cache = dict()
@@ -55,7 +65,7 @@ class UDPDNSServer(UDPServer):
                         questions=[request])
 
         sock = socket(AF_INET, SOCK_DGRAM)
-        sock.settimeout(1)
+        sock.settimeout(self.timeout)
 
         for server in self.servers:
             sock.sendto(packet.to_bytes(), (server, 53))

@@ -180,20 +180,26 @@ class Packet(object):
     ad: bool = False
     cd: bool = True
     rcode: int = 0
-    total_questions: int = field(init=False)
-    total_answer_rrs: int = field(init=False)
-    total_authority_rrs: int = field(init=False)
-    total_additional_rrs: int = field(init=False)
     questions: list = field(default_factory=list)
     answer_rrs: list = field(default_factory=list)
     authority_rrs: list = field(default_factory=list)
     additional_rrs: list = field(default_factory=list)
 
-    def __post_init__(self):
-        self.total_questions = len(self.questions)
-        self.total_answer_rrs = len(self.answer_rrs)
-        self.total_authority_rrs = len(self.authority_rrs)
-        self.total_additional_rrs = len(self.additional_rrs)
+    @property
+    def total_questions(self):
+        return len(self.questions)
+
+    @property
+    def total_answer_rrs(self):
+        return len(self.answer_rrs)
+
+    @property
+    def total_authority_rrs(self):
+        return len(self.authority_rrs)
+
+    @property
+    def total_additional_rrs(self):
+        return len(self.additional_rrs)
 
     @classmethod
     def from_bytes(cls, data):
