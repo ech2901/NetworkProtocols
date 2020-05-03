@@ -20,22 +20,23 @@ class UDPDNSHandler(BaseRequestHandler):
             print(f'{self.client_address[0]} requested {query.name.decode()}.')
             try:
                 record = self.server.records[query.name][query._type][query._class]
-                print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
+                print(f'{query.name.decode()} -> {record}')
                 auth_rr.extend(record)
             except KeyError:
                 try:
                     record = self.server.cache[query.name][query._type][query._class]
-                    print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
+                    print(f'{query.name.decode()} -> {record}')
                     add_rr.extend(record)
                 except KeyError:
                     try:
                         record = self.server.lookup(query)
-                        print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
+                        print(f'{query.name.decode()} -> {record}')
                         add_rr.extend(record)
                     except FileNotFoundError:
                         print(f'No record found for {query.name.decode()}')
                     except Exception as e:
                         print(f'Exception while looking up {query.name.decode()}')
+                        print(e)
                         continue
 
         records.extend(auth_rr)
