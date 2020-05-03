@@ -21,17 +21,17 @@ class UDPDNSHandler(BaseRequestHandler):
             try:
                 record = self.server.records[query.name][query._type][query._class]
                 print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
-                auth_rr.append(record)
+                auth_rr.extend(record)
             except KeyError:
                 try:
                     record = self.server.cache[query.name][query._type][query._class]
                     print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
-                    add_rr.append(record)
+                    add_rr.extend(record)
                 except KeyError:
                     try:
                         record = self.server.lookup(query)
                         print(f'{query.name.decode()} -> {record._type.factory(record.rdata)}')
-                        add_rr.append(record)
+                        add_rr.extend(record)
                     except FileNotFoundError:
                         print(f'No record found for {query.name.decode()}')
                     except Exception as e:
@@ -77,6 +77,6 @@ class UDPDNSServer(UDPServer):
 
             resp_packet = Packet.from_bytes(data)
             if resp_packet.identification == packet.identification:
-                return resp_packet.answer_rrs[0]
+                return resp_packet.answer_rrs
 
         raise FileNotFoundError
