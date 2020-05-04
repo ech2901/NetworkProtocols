@@ -4,15 +4,15 @@ from socket import socket, AF_INET, SOCK_DGRAM, timeout
 from socketserver import BaseRequestHandler
 
 from Servers import UDPServer
-from Servers.DNS.Classes import Packet
+from Servers.DNS.Classes import Packet, ResourceRecord
 
 
 class UDPDNSHandler(BaseRequestHandler):
 
-    def lookup(self, request):
+    def lookup(self, query):
         packet = Packet(int.from_bytes(urandom(2), 'big'),
                         0, self.packet.opcode, rd=self.packet.rd,
-                        questions=[request])
+                        questions=[query])
 
         sock = socket(AF_INET, SOCK_DGRAM)
         sock.settimeout(self.server.timeout)
@@ -27,6 +27,7 @@ class UDPDNSHandler(BaseRequestHandler):
 
             resp_packet = Packet.from_bytes(data)
             if resp_packet.identification == packet.identification:
+                print(f'{query.name.decode()} -> {resp_packet.answer_rrs}')
                 self.to_cache.extend(resp_packet.answer_rrs)
                 self.packet.additional_rrs.extend(resp_packet.answer_rrs)
 
@@ -79,4 +80,5 @@ class UDPDNSServer(UDPServer):
         self.records = dict()
         self.cache = dict()
 
-
+    def add_record(self, record: ResourceRecord):
+        self.records[record.name][record._type][record._class] = record
