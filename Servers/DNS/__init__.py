@@ -29,6 +29,7 @@ class UDPDNSHandler(BaseRequestHandler):
                 print(f'{query.name.decode()} -> {resp_packet.answer_rrs}')
                 self.to_cache.extend(resp_packet.answer_rrs)
                 self.packet.answer_rrs.extend(resp_packet.answer_rrs)
+                return
 
         raise FileNotFoundError
 
