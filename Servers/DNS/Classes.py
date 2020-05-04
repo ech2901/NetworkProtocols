@@ -175,12 +175,13 @@ class Packet(object):
     aa: bool = False
     tc: bool = False
     rd: bool = True
-    ra: bool = False
+    ra: bool = True
     z: bool = field(default=False, init=False)
     ad: bool = False
     cd: bool = True
     rcode: int = 0
     questions: list = field(default_factory=list)
+    answer_rrs: list = field(default_factory=list)
     authority_rrs: list = field(default_factory=list)
     additional_rrs: list = field(default_factory=list)
 
@@ -191,10 +192,6 @@ class Packet(object):
     @property
     def total_answer_rrs(self):
         return len(self.answer_rrs)
-
-    @property
-    def answer_rrs(self):
-        return self.authority_rrs + self.additional_rrs
 
     @property
     def total_authority_rrs(self):
@@ -232,6 +229,10 @@ class Packet(object):
             question, data = Query.from_bytes(data, offset_copy)
             questions.append(question)
 
+        for _ in range(ta):
+            answer, data = ResourceRecord.from_bytes(data, offset_copy)
+            answers.append(answer)
+
         for _ in range(tau):
             auth_answer, data = ResourceRecord.from_bytes(data, offset_copy)
             authorities.append(auth_answer)
@@ -241,7 +242,7 @@ class Packet(object):
             additionals.append(add_answer)
 
         return cls(identification, qr, opcode, aa, tc, rd, ra, ad, cd,
-                   rcode, questions, authorities, additionals)
+                   rcode, questions, answers, authorities, additionals)
 
     def to_bytes(self):
         flags = (self.qr << 15) + (self.opcode << 11) + (self.aa << 10) + (self.tc << 9)

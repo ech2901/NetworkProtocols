@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from os import urandom
 from socket import socket, AF_INET, SOCK_DGRAM, timeout
 from socketserver import BaseRequestHandler
 
@@ -10,7 +9,7 @@ from Servers.DNS.Classes import Packet, ResourceRecord
 class UDPDNSHandler(BaseRequestHandler):
 
     def lookup(self, query):
-        packet = Packet(int.from_bytes(urandom(2), 'big'),
+        packet = Packet(self.packet.identification,
                         0, self.packet.opcode, rd=self.packet.rd,
                         questions=[query])
 
@@ -29,7 +28,7 @@ class UDPDNSHandler(BaseRequestHandler):
             if resp_packet.identification == packet.identification:
                 print(f'{query.name.decode()} -> {resp_packet.answer_rrs}')
                 self.to_cache.extend(resp_packet.answer_rrs)
-                self.packet.additional_rrs.extend(resp_packet.answer_rrs)
+                self.packet.answer_rrs.extend(resp_packet.answer_rrs)
 
         raise FileNotFoundError
 
@@ -51,7 +50,7 @@ class UDPDNSHandler(BaseRequestHandler):
                     if datetime.now() >= expiration:
                         raise KeyError
                     print(f'{query.name.decode()} -> {record}')
-                    self.packet.additional_rrs.extend(record)
+                    self.packet.answer_rrs.extend(record)
                 except KeyError:
                     try:
                         self.lookup(query)
@@ -69,6 +68,7 @@ class UDPDNSHandler(BaseRequestHandler):
         for record in self.to_cache:
             expiration = datetime.now() + timedelta(seconds=record.ttl)
             self.server.cache[(record.name, record._type, record._class)] = (record, expiration)
+
 
 class UDPDNSServer(UDPServer):
     def __init__(self, timeout=4, *servers):
