@@ -181,7 +181,6 @@ class Packet(object):
     cd: bool = True
     rcode: int = 0
     questions: list = field(default_factory=list)
-    answer_rrs: list = field(default_factory=list)
     authority_rrs: list = field(default_factory=list)
     additional_rrs: list = field(default_factory=list)
 
@@ -192,6 +191,10 @@ class Packet(object):
     @property
     def total_answer_rrs(self):
         return len(self.answer_rrs)
+
+    @property
+    def answer_rrs(self):
+        return self.authority_rrs + self.additional_rrs
 
     @property
     def total_authority_rrs(self):
