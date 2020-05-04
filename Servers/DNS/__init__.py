@@ -50,8 +50,8 @@ class UDPDNSHandler(BaseRequestHandler):
                     records, expiration = self.server.cache[(query.name, query._type, query._class)]
                     if datetime.now() >= expiration:
                         raise KeyError
-                    print(f'{query.name.decode()} -> {len(records)} found.')
-                    self.packet.answer_rrs.append(records)
+                    print(f'{query.name.decode()} -> {len(records)} previously cached.')
+                    self.packet.answer_rrs.extend(records)
                 except KeyError:
                     try:
                         self.lookup(query)
@@ -67,7 +67,7 @@ class UDPDNSHandler(BaseRequestHandler):
 
     def finish(self):
         for query, records in self.to_cache:
-            expiration = datetime.now() + timedelta(seconds=min(*records, key=lambda x: x.ttl))
+            expiration = datetime.now() + timedelta(seconds=min(records, key=lambda x: x.ttl).ttl)
             self.server.cache[(query.name, query._type, query._class)] = (records, expiration)
 
 
