@@ -34,6 +34,14 @@ class UDPDNSHandler(BaseRequestHandler):
 
         raise FileNotFoundError
 
+    def is_blocked(self, query):
+        if query.name in self.server.blacklist_hostnames:
+            return True
+        else:
+            *_, host, root = query.name.split(b'.', -1)
+            return b'.'.join([host, root]) in self.server.blacklist_domains
+
+
     def setup(self):
         self.packet = Packet.from_bytes(self.request[0])
         self.to_cache = list()
@@ -44,6 +52,13 @@ class UDPDNSHandler(BaseRequestHandler):
         for query in self.packet.questions:
             if self.server.verbose:
                 print(f'{self.client_address[0]} requested {query.name.decode()}.')
+
+            if self.is_blocked(query):
+                if self.server.verbose:
+                    print(f'{query.name.decode()} is blocked.')
+                self.packet.answer_rrs.append(ResourceRecord(query.name, *self.server.dummy_record))
+                continue
+
             try:
                 records = self.server.records[(query.name, query._type, query._class)]
                 if self.server.verbose:
@@ -89,6 +104,12 @@ class UDPDNSServer(UDPServer):
         self.records = dict()
         self.cache = dict()
 
+        self.blacklist_domains = list()
+        self.blacklist_hostnames = list()
+        packed_rdata = Type.A.factory('0.0.0.0').packed
+        # Dummy record for blocks addresses.
+        self.dummy_record = (Type.A, Class.IN, (1 << 32) - 1, len(packed_rdata), packed_rdata)
+
     def add_record(self, name: str, _type: Type, _class: Class, ttl: int, rdata: str):
         packed_rdata = _type.factory(rdata).packed
         record = ResourceRecord(name.encode(), _type, _class, ttl, len(packed_rdata), packed_rdata)
@@ -99,5 +120,9 @@ class UDPDNSServer(UDPServer):
         self.records[key] = list()
         self.records[key].append(record)
 
-    def add_block(self, name: str):
-        self.add_record(name, Type.A, Class.IN, (1 << 32) - 1, '0.0.0.0')
+    def block_domain(self, domain: str):
+        *_, host, root = domain.split('.', -1)
+        self.blacklist_domains.append(f'{host}.{root}'.encode())
+
+    def block_hostname(self, hostname: str):
+        self.blacklist_hostnames.append(hostname.encode())
