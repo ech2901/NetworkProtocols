@@ -3,7 +3,7 @@ from socket import socket, AF_INET, SOCK_DGRAM, timeout
 from socketserver import BaseRequestHandler
 
 from Servers import UDPServer
-from Servers.DNS.Classes import Packet, ResourceRecord
+from Servers.DNS.Classes import Packet, Type, Class, ResourceRecord
 
 
 class UDPDNSHandler(BaseRequestHandler):
@@ -26,7 +26,8 @@ class UDPDNSHandler(BaseRequestHandler):
 
             resp_packet = Packet.from_bytes(data)
             if resp_packet.identification == packet.identification and resp_packet.answer_rrs:
-                print(f'{query.name.decode()} -> {len(resp_packet.answer_rrs)} found.')
+                if self.server.verbose:
+                    print(f'{query.name.decode()} -> {len(resp_packet.answer_rrs)} found.')
                 self.to_cache.append((query, resp_packet.answer_rrs))
                 self.packet.answer_rrs.extend(resp_packet.answer_rrs)
                 return
@@ -36,30 +37,36 @@ class UDPDNSHandler(BaseRequestHandler):
     def setup(self):
         self.packet = Packet.from_bytes(self.request[0])
         self.to_cache = list()
-        print(f'{self.client_address[0]} connected.')
+        if self.server.verbose:
+            print(f'{self.client_address[0]} connected.')
 
     def handle(self):
         for query in self.packet.questions:
-            print(f'{self.client_address[0]} requested {query.name.decode()}.')
+            if self.server.verbose:
+                print(f'{self.client_address[0]} requested {query.name.decode()}.')
             try:
                 records = self.server.records[(query.name, query._type, query._class)]
-                print(f'{query.name.decode()} -> {len(records)} authoritive found.')
+                if self.server.verbose:
+                    print(f'{query.name.decode()} -> {len(records)} authoritive found.')
                 self.packet.answer_rrs.extend(records)
             except KeyError:
                 try:
                     records, expiration = self.server.cache[(query.name, query._type, query._class)]
                     if datetime.now() >= expiration:
                         raise KeyError
-                    print(f'{query.name.decode()} -> {len(records)} previously cached.')
+                    if self.server.verbose:
+                        print(f'{query.name.decode()} -> {len(records)} previously cached.')
                     self.packet.answer_rrs.extend(records)
                 except KeyError:
                     try:
                         self.lookup(query)
                     except FileNotFoundError:
-                        print(f'No record found for {query.name.decode()}')
+                        if self.server.verbose:
+                            print(f'No record found for {query.name.decode()}')
                     except Exception as e:
-                        print(f'Exception while looking up {query.name.decode()}')
-                        print(e)
+                        if self.server.verbose:
+                            print(f'Exception while looking up {query.name.decode()}')
+                            print(e)
                         return
 
         self.packet.qr = 1
@@ -72,19 +79,25 @@ class UDPDNSHandler(BaseRequestHandler):
 
 
 class UDPDNSServer(UDPServer):
-    def __init__(self, timeout=4, *servers):
+    def __init__(self, *servers, verbose=False):
         UDPServer.__init__(self, '', 53, UDPDNSHandler)
 
-        self.timeout = timeout
+        self.timeout = 4
+        self.verbose = verbose
 
         self.servers = servers
         self.records = dict()
         self.cache = dict()
 
-    def add_record(self, record: ResourceRecord):
+    def add_record(self, name: str, _type: Type, _class: Class, ttl: int, rdata: str):
+        packed_rdata = _type.factory(rdata).packed
+        record = ResourceRecord(name.encode(), _type, _class, ttl, len(packed_rdata), packed_rdata)
         key = (record.name, record._type, record._class)
         if key in self.records:
             self.records[key].append(record)
             return
         self.records[key] = list()
         self.records[key].append(record)
+
+    def add_block(self, name: str):
+        self.add_record(name, Type.A, Class.IN, 1 << 32, '0.0.0.0')
