@@ -50,7 +50,7 @@ class UDPDNSHandler(BaseRequestHandler):
                     if datetime.now() >= expiration:
                         raise KeyError
                     print(f'{query.name.decode()} -> {record}')
-                    self.packet.answer_rrs.extend(record)
+                    self.packet.answer_rrs.append(record)
                 except KeyError:
                     try:
                         self.lookup(query)
@@ -81,4 +81,9 @@ class UDPDNSServer(UDPServer):
         self.cache = dict()
 
     def add_record(self, record: ResourceRecord):
-        self.records[(record.name, record._type, record._class)] = record
+        key = (record.name, record._type, record._class)
+        if key in self.records:
+            self.records[key].append(record)
+            return
+        self.records[key] = list()
+        self.records[key].append(record)
