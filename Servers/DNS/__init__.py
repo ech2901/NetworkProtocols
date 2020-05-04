@@ -25,7 +25,7 @@ class UDPDNSHandler(BaseRequestHandler):
                 continue
 
             resp_packet = Packet.from_bytes(data)
-            if resp_packet.identification == packet.identification:
+            if resp_packet.identification == packet.identification and resp_packet.answer_rrs:
                 print(f'{query.name.decode()} -> {len(resp_packet.answer_rrs)} found.')
                 self.to_cache.append((query, resp_packet.answer_rrs))
                 self.packet.answer_rrs.extend(resp_packet.answer_rrs)
@@ -44,7 +44,7 @@ class UDPDNSHandler(BaseRequestHandler):
             try:
                 records = self.server.records[(query.name, query._type, query._class)]
                 print(f'{query.name.decode()} -> {len(records)} authoritive found.')
-                self.packet.authority_rrs.extend(records)
+                self.packet.answer_rrs.extend(records)
             except KeyError:
                 try:
                     records, expiration = self.server.cache[(query.name, query._type, query._class)]
