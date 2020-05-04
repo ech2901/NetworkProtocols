@@ -66,7 +66,7 @@ class UDPDNSHandler(BaseRequestHandler):
                     except Exception as e:
                         if self.server.verbose:
                             print(f'Exception while looking up {query.name.decode()}')
-                            print(e)
+                            print(e.with_traceback(e.__traceback__))
                         return
 
         self.packet.qr = 1
