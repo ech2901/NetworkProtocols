@@ -232,10 +232,6 @@ class Packet(object):
             question, data = Query.from_bytes(data, offset_copy)
             questions.append(question)
 
-        for _ in range(ta):
-            answer, data = ResourceRecord.from_bytes(data, offset_copy)
-            answers.append(answer)
-
         for _ in range(tau):
             auth_answer, data = ResourceRecord.from_bytes(data, offset_copy)
             authorities.append(auth_answer)
@@ -245,7 +241,7 @@ class Packet(object):
             additionals.append(add_answer)
 
         return cls(identification, qr, opcode, aa, tc, rd, ra, ad, cd,
-                   rcode, questions, answers, authorities, additionals)
+                   rcode, questions, authorities, additionals)
 
     def to_bytes(self):
         flags = (self.qr << 15) + (self.opcode << 11) + (self.aa << 10) + (self.tc << 9)
