@@ -126,3 +126,19 @@ class UDPDNSServer(UDPServer):
 
     def block_hostname(self, hostname: str):
         self.blacklist_hostnames.append(hostname.encode())
+
+    def load_blacklists(self, hostnames_loc, domains_loc):
+        with open(hostnames_loc, 'r') as file:
+            hostnames = file.read().split('\n', -1)
+            for hostname in hostnames:
+                self.block_hostname(hostname)
+        with open(domains_loc, 'r') as file:
+            domains = file.read().split('\n', -1)
+            for domain in domains:
+                self.block_hostname(domain)
+
+    def save_blacklists(self, hostnames_loc, domains_loc):
+        with open(hostnames_loc, 'wb') as file:
+            file.write(b'\n'.join(self.blacklist_hostnames))
+        with open(domains_loc, 'wb') as file:
+            file.write(b'\n'.join(self.blacklist_domains))
