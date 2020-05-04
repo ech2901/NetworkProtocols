@@ -42,12 +42,12 @@ class UDPDNSHandler(BaseRequestHandler):
         for query in self.packet.questions:
             print(f'{self.client_address[0]} requested {query.name.decode()}.')
             try:
-                record = self.server.records[query.name][query._type][query._class]
+                record = self.server.records[(record.name, record._type, record._class)]
                 print(f'{query.name.decode()} -> {record}')
                 self.packet.authority_rrs.extend(record)
             except KeyError:
                 try:
-                    record, expiration = self.server.cache[query.name][query._type][query._class]
+                    record, expiration = self.server.cache[(record.name, record._type, record._class)]
                     if datetime.now() >= expiration:
                         raise KeyError
                     print(f'{query.name.decode()} -> {record}')
@@ -68,7 +68,7 @@ class UDPDNSHandler(BaseRequestHandler):
     def finish(self):
         for record in self.to_cache:
             expiration = datetime.now() + timedelta(seconds=record.ttl)
-            self.server.cache[record.name][record._type][record._class] = (record, expiration)
+            self.server.cache[(record.name, record._type, record._class)] = (record, expiration)
 
 class UDPDNSServer(UDPServer):
     def __init__(self, timeout=4, *servers):
@@ -81,4 +81,4 @@ class UDPDNSServer(UDPServer):
         self.cache = dict()
 
     def add_record(self, record: ResourceRecord):
-        self.records[record.name][record._type][record._class] = record
+        self.records[(record.name, record._type, record._class)] = record
