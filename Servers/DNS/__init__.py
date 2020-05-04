@@ -26,8 +26,8 @@ class UDPDNSHandler(BaseRequestHandler):
 
             resp_packet = Packet.from_bytes(data)
             if resp_packet.identification == packet.identification:
-                print(f'{query.name.decode()} -> {resp_packet.answer_rrs}')
-                self.to_cache.extend(resp_packet.answer_rrs)
+                print(f'{query.name.decode()} -> {len(resp_packet.answer_rrs)} found.')
+                self.to_cache.append((query, resp_packet.answer_rrs))
                 self.packet.answer_rrs.extend(resp_packet.answer_rrs)
                 return
 
@@ -42,16 +42,16 @@ class UDPDNSHandler(BaseRequestHandler):
         for query in self.packet.questions:
             print(f'{self.client_address[0]} requested {query.name.decode()}.')
             try:
-                record = self.server.records[(query.name, query._type, query._class)]
-                print(f'{query.name.decode()} -> {record}')
-                self.packet.authority_rrs.extend(record)
+                records = self.server.records[(query.name, query._type, query._class)]
+                print(f'{query.name.decode()} -> {len(records)} authoritive found.')
+                self.packet.authority_rrs.extend(records)
             except KeyError:
                 try:
-                    record, expiration = self.server.cache[(query.name, query._type, query._class)]
+                    records, expiration = self.server.cache[(query.name, query._type, query._class)]
                     if datetime.now() >= expiration:
                         raise KeyError
-                    print(f'{query.name.decode()} -> {record}')
-                    self.packet.answer_rrs.append(record)
+                    print(f'{query.name.decode()} -> {len(records)} found.')
+                    self.packet.answer_rrs.append(records)
                 except KeyError:
                     try:
                         self.lookup(query)
@@ -66,9 +66,9 @@ class UDPDNSHandler(BaseRequestHandler):
         self.request[1].sendto(self.packet.to_bytes(), self.client_address)
 
     def finish(self):
-        for record in self.to_cache:
-            expiration = datetime.now() + timedelta(seconds=record.ttl)
-            self.server.cache[(record.name, record._type, record._class)] = (record, expiration)
+        for query, records in self.to_cache:
+            expiration = datetime.now() + timedelta(seconds=min(*records, key=lambda x: x.ttl))
+            self.server.cache[(query.name, query._type, query._class)] = (records, expiration)
 
 
 class UDPDNSServer(UDPServer):
