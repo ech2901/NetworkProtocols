@@ -224,7 +224,6 @@ class UDPDNSHandler(BaseRequestHandler):
             *_, host, root = query.name.split(b'.', -1)
             return b'.'.join([host, root]) in self.server.blacklist_domains
 
-
     def setup(self):
         self.packet = Packet.from_bytes(self.request[0])
         self.to_cache = list()
@@ -268,7 +267,7 @@ class UDPDNSHandler(BaseRequestHandler):
                         return
 
         self.packet.qr = 1
-        self.request.sendto(self.packet.to_bytes(), self.client_address)
+        self.request[1].sendto(self.packet.to_bytes(), self.client_address)
 
     def finish(self):
         for query, records in self.to_cache:
