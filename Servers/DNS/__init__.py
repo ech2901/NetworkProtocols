@@ -268,7 +268,7 @@ class UDPDNSHandler(BaseRequestHandler):
                         return
 
         self.packet.qr = 1
-        self.request.send(self.packet.to_bytes(), self.client_address)
+        self.request.sendto(self.packet.to_bytes(), self.client_address)
 
     def finish(self):
         for query, records in self.to_cache:
