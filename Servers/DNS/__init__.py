@@ -49,7 +49,20 @@ class BaseDNSHandler(BaseRequestHandler):
                     return True
         return False
 
+    def get_packet(self):
+        pass
+
+    def send_packet(self):
+        pass
+
+    def setup(self):
+        self.get_packet()
+        self.to_cache = list()
+        if self.server.verbose:
+            print(f'{self.client_address[0]} connected.')
+
     def handle(self):
+        self.packet.qr = 1
         for query in self.packet.questions:
             if self.server.verbose:
                 print(f'{self.client_address[0]} requested {query.name.decode()}.')
@@ -85,54 +98,41 @@ class BaseDNSHandler(BaseRequestHandler):
                             print(e.with_traceback(e.__traceback__))
                         return
 
-        self.packet.qr = 1
-
-
-class TCPDNSHandler(BaseDNSHandler):
-
-    def setup(self):
-        size = unpack('! H', self.request.recv(2))[0]
-        self.packet = Packet.from_bytes(self.request.recv(size))
-        self.to_cache = list()
-        if self.server.verbose:
-            print(f'{self.client_address[0]} connected.')
-
     def finish(self):
-        data = self.packet.to_bytes()
-        self.request.send(pack('! H', len(data)))
-        self.request.send(data)
+        self.send_packet()
         for query, records in self.to_cache:
             expiration = datetime.now() + timedelta(seconds=min(records, key=lambda x: x.ttl).ttl)
             self.server.cache[(query.name, query._type, query._class)] = (records, expiration)
 
+class TCPDNSHandler(BaseDNSHandler):
+
+    def get_packet(self):
+        size = unpack('! H', self.request.recv(2))[0]
+        self.packet = Packet.from_bytes(self.request.recv(size))
+
+    def send_packet(self):
+        data = self.packet.to_bytes()
+        self.request.send(pack('! H', len(data)))
+        self.request.send(data)
+
 
 class SSLDNSHandler(TCPDNSHandler):
 
-    def setup(self):
-
+    def get_packet(self):
         self.request = self.server.context.wrap_socket(self.request, server_side=True)
         self.request.do_handshake()
 
         size = unpack('! H', self.request.recv(2))[0]
         self.packet = Packet.from_bytes(self.request.recv(size))
-        self.to_cache = list()
-        if self.server.verbose:
-            print(f'{self.client_address[0]} connected.')
 
 
 class UDPDNSHandler(BaseDNSHandler):
 
-    def setup(self):
+    def get_packet(self):
         self.packet = Packet.from_bytes(self.request[0])
-        self.to_cache = list()
-        if self.server.verbose:
-            print(f'{self.client_address[0]} connected.')
 
-    def finish(self):
+    def send_packet(self):
         self.request[1].sendto(self.packet.to_bytes(), self.client_address)
-        for query, records in self.to_cache:
-            expiration = datetime.now() + timedelta(seconds=min(records, key=lambda x: x.ttl).ttl)
-            self.server.cache[(query.name, query._type, query._class)] = (records, expiration)
 
 
 class BaseDNSServer(object):
