@@ -104,6 +104,7 @@ class BaseDNSHandler(BaseRequestHandler):
             expiration = datetime.now() + timedelta(seconds=min(records, key=lambda x: x.ttl).ttl)
             self.server.cache[(query.name, query._type, query._class)] = (records, expiration)
 
+
 class TCPDNSHandler(BaseDNSHandler):
 
     def get_packet(self):

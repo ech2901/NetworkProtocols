@@ -226,20 +226,32 @@ class Packet(object):
         data = data[12:]
 
         for _ in range(tq):
-            question, data = Query.from_bytes(data, offset_copy)
-            questions.append(question)
+            try:
+                question, data = Query.from_bytes(data, offset_copy)
+                questions.append(question)
+            except:
+                rcode = 1
 
         for _ in range(ta):
-            answer, data = ResourceRecord.from_bytes(data, offset_copy)
-            answers.append(answer)
+            try:
+                answer, data = ResourceRecord.from_bytes(data, offset_copy)
+                answers.append(answer)
+            except:
+                rcode = 1
 
         for _ in range(tau):
-            auth_answer, data = ResourceRecord.from_bytes(data, offset_copy)
-            authorities.append(auth_answer)
+            try:
+                auth_answer, data = ResourceRecord.from_bytes(data, offset_copy)
+                authorities.append(auth_answer)
+            except:
+                rcode = 1
 
         for _ in range(tad):
-            add_answer, data = ResourceRecord.from_bytes(data, offset_copy)
-            additionals.append(add_answer)
+            try:
+                add_answer, data = ResourceRecord.from_bytes(data, offset_copy)
+                additionals.append(add_answer)
+            except:
+                rcode = 1
 
         return cls(identification, qr, opcode, aa, tc, rd, ra, ad, cd,
                    rcode, questions, answers, authorities, additionals)
@@ -317,6 +329,7 @@ class Query(object):
         out = 'Query'.center(64, '-')
         out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
         return out
+
 
 @dataclass(repr=False)
 class ResourceRecord(object):
