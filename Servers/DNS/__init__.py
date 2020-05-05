@@ -40,13 +40,12 @@ class BaseDNSHandler(BaseRequestHandler):
         if query.name in self.server.blacklist_hostnames:
             return True
         else:
-            *subdomains, host, root = query.name.split(b'.', -1)
-            curr = b'.'.join([host, root])
-            if curr in self.server.blacklist_domains:
+            *subdomains, root = query.name.split(b'.', -1)
+            if root in self.server.blacklist_domains:
                 return True
             for subdomain in reversed(subdomains):
-                curr = b'.'.join([subdomain, curr])
-                if curr in self.server.blacklist_domains:
+                root = b'.'.join([subdomain, root])
+                if root in self.server.blacklist_domains:
                     return True
         return False
 
