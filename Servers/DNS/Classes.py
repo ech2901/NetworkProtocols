@@ -24,13 +24,13 @@ def unpack_name(data, offset_copy=None, *, return_unused=False):
             name.append(b'.'[0])
 
     if return_unused:
-        return bytes(name).decode(), bytes(name_data)
-    return bytes(name).decode()
+        return bytes(name), bytes(name_data)
+    return bytes(name)
 
 
 def pack_name(data):
     if data:
-        name_data = data.encode().split(b'.')
+        name_data = data.split(b'.')
         name = b''
         for segment in name_data:
             size = len(segment)
@@ -315,10 +315,10 @@ class Query(object):
 
         _type, _class = unpack('! 2H', data[:4])
 
-        return cls(name, Type(_type), Class(_class)), data[4:]
+        return cls(name.decode(), Type(_type), Class(_class)), data[4:]
 
     def to_bytes(self):
-        name = pack_name(self.name)
+        name = pack_name(self.name.encode())
 
         return name + self._type.to_bytes() + self._class.to_bytes()
 
@@ -348,10 +348,10 @@ class ResourceRecord(object):
 
         rdata = data[10:10 + length]
 
-        return cls(name, Type(_type), Class(_class), ttl, length, rdata), data[10 + length:]
+        return cls(name.decode(), Type(_type), Class(_class), ttl, length, rdata), data[10 + length:]
 
     def to_bytes(self):
-        name = pack_name(self.name)
+        name = pack_name(self.name.encode())
         data = name + self._type.to_bytes() + self._class.to_bytes() + pack('! L H', self.ttl, self.rdata_length)
 
         return data + self.rdata

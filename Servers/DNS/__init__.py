@@ -29,7 +29,7 @@ class BaseDNSHandler(BaseRequestHandler):
             resp_packet = Packet.from_bytes(data)
             if resp_packet.identification == packet.identification and resp_packet.answer_rrs:
                 if self.server.verbose:
-                    print(f'{query.name.decode()} -> {len(resp_packet.answer_rrs)} found.')
+                    print(f'{query.name} -> {len(resp_packet.answer_rrs)} found.')
                 self.to_cache.append((query, resp_packet.answer_rrs))
                 self.packet.answer_rrs.extend(resp_packet.answer_rrs)
                 return
@@ -52,22 +52,22 @@ class BaseDNSHandler(BaseRequestHandler):
         self.packet.qr = 1
         for query in self.packet.questions:
             if self.server.verbose:
-                print(f'{self.client_address[0]} requested {query.name.decode()}.')
+                print(f'{self.client_address[0]} requested {query.name}.')
 
             records = self.server.storage[query]
             if records:
                 if self.server.verbose:
-                    print(f'Records found for {query.name.decode()}')
+                    print(f'Records found for {query.name}')
                 self.packet.answer_rrs.extend(records)
             else:
                 try:
                     self.lookup(query)
                 except FileNotFoundError:
                     if self.server.verbose:
-                        print(f'No record found for {query.name.decode()}')
+                        print(f'No record found for {query.name}')
                 except Exception as e:
                     if self.server.verbose:
-                        print(f'Exception while looking up {query.name.decode()}')
+                        print(f'Exception while looking up {query.name}')
                         print(e.with_traceback(e.__traceback__))
                     return
 
