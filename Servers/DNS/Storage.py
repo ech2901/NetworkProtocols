@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from json import load, dump
 
 from .Classes import Query, ResourceRecord, Type, Class
 
@@ -37,18 +38,50 @@ class DictStorage(BaseStorage):
 
         self.records = dict()
         self.cache = dict()
-        self.blocked_domains = dict()
-        self.blocked_hostnames = dict()
+        self.blocked_domains = list()
+        self.blocked_hostnames = list()
+
+    def load(self, file: str):
+        try:
+            with open(file, 'r') as file:
+                data = load(file)
+        except FileNotFoundError:
+            return
+
+        self.blocked_hostnames.extend(data['blocked_hostnames'])
+        self.blocked_hostnames.extend(data['blocked_domains'])
+
+        for name in data['records']:
+            _type = Type(data['records'][name]['type'])
+            _class = Class(data['records'][name]['class'])
+            ttl = data['records'][name]['ttl']
+            rdata_length = data['records'][name]['data_length']
+            rdata = int.to_bytes(rdata_length, data['records'][name]['data'])
+            self.add_record(ResourceRecord(name, _type, _class, ttl, rdata_length, rdata))
+
+    def save(self, file: str):
+        out = dict()
+        out['records'] = dict()
+        for record in self.records.values():
+            out['records'][record.name] = {'type': record._type._value, 'class': record._class._value,
+                                           'ttl': record.ttl,
+                                           'data_length': record.rdata_length,
+                                           'data': int.from_bytes(record.rdata, 'big')}
+
+        out['blocked_domains'] = self.blocked_domains
+        out['blocked_hostnames'] = self.blocked_hostnames
+        with open(file, 'w') as file:
+            dump(out, file)
 
     def is_blocked(self, query: Query):
         if query.name in self.blocked_hostnames:
             return True
         else:
-            *subdomains, root = query.name.split(b'.', -1)
+            *subdomains, root = query.name.split('.', -1)
             if root in self.blocked_domains:
                 return True
             for subdomain in reversed(subdomains):
-                root = b'.'.join([subdomain, root])
+                root = '.'.join([subdomain, root])
                 if root in self.blocked_domains:
                     return True
         return False

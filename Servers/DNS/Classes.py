@@ -24,13 +24,13 @@ def unpack_name(data, offset_copy=None, *, return_unused=False):
             name.append(b'.'[0])
 
     if return_unused:
-        return bytes(name), bytes(name_data)
-    return bytes(name)
+        return bytes(name).decode(), bytes(name_data)
+    return bytes(name).decode()
 
 
 def pack_name(data):
     if data:
-        name_data = data.split(b'.')
+        name_data = data.encode().split(b'.')
         name = b''
         for segment in name_data:
             size = len(segment)
@@ -305,7 +305,7 @@ class Packet(object):
 
 @dataclass(repr=False)
 class Query(object):
-    name: bytes
+    name: str
     _type: Type
     _class: Class
 
@@ -327,13 +327,13 @@ class Query(object):
 
     def __str__(self):
         out = 'Query'.center(64, '-')
-        out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
+        out = f'{out}\nName: {self.name}\nType: {self._type.description}\nClass: {self._class.description}'
         return out
 
 
 @dataclass(repr=False)
 class ResourceRecord(object):
-    name: bytes
+    name: str
     _type: Type
     _class: Class
     ttl: int
@@ -363,7 +363,7 @@ class ResourceRecord(object):
 
     def __str__(self):
         out = 'Record'.center(64, '-')
-        out = f'{out}\nName: {self.name.decode()}\nType: {self._type.description}\nClass: {self._class.description}'
+        out = f'{out}\nName: {self.name}\nType: {self._type.description}\nClass: {self._class.description}'
         out = f'{out}\nTTL: {self.ttl}\nRecord Data: {self._type.factory(self.rdata)}'
         return out
 
