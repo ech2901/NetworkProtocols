@@ -49,7 +49,7 @@ class DictStorage(BaseStorage):
             return
 
         self.blocked_hostnames.extend(data['blocked_hostnames'])
-        self.blocked_hostnames.extend(data['blocked_domains'])
+        self.blocked_domains.extend(data['blocked_domains'])
 
         for name in data['records']:
             _type = Type(data['records'][name]['type'])
@@ -84,7 +84,7 @@ class DictStorage(BaseStorage):
                 root = '.'.join([subdomain, root])
                 if root in self.blocked_domains:
                     return True
-        return False
+            return False
 
     def get(self, query: Query):
         key = (query.name, query._type, query._class)
