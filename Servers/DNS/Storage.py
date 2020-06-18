@@ -15,9 +15,6 @@ class BaseStorage(object):
     def get(self, query: Query):
         pass
 
-    def add_record(self, record: ResourceRecord):
-        pass
-
     def add_cache(self, query: Query, records: list):
         pass
 

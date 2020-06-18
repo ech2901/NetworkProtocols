@@ -40,9 +40,17 @@ def pack_name(data):
     return b'\x00'
 
 
+def unpack_name_server(data):
+    print(data)
+    try:
+        return ip_address(data)
+    except:
+        return unpack_name(data)
+
+
 class Type(Enum):
     A = (1, 'IPv4 Address', ip_address)
-    NS = (2, 'Authoritative Name Server')
+    NS = (2, 'Authoritative Name Server', unpack_name_server)
     MD = (3, 'Mail Destinatin (Obsolete)')
     MF = (4, 'Mail Forwarder (Obsolete)')
     CNAME = (5, 'Canonical name')
