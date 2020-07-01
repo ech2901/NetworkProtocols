@@ -9,7 +9,7 @@ from RawPacket import MAC_Address
 # Base server that runs in it's own daemonic thread
 # Allows you to operate on server while running
 # IE: stop it, change a variable, etc
-class TCPServer(Thread, ThreadingTCPServer):
+class BaseTCPServer(Thread, ThreadingTCPServer):
     def __init__(self, ip, port, handler):
         ThreadingTCPServer.__init__(self, (ip, port), handler)
         Thread.__init__(self, target=self.serve_forever)
@@ -31,7 +31,7 @@ class TCPServer(Thread, ThreadingTCPServer):
 # Base server that runs in it's own daemonic thread
 # Allows you to operate on server while running
 # IE: stop it, change a variable, etc
-class UDPServer(Thread, ThreadingUDPServer):
+class BaseUDPServer(Thread, ThreadingUDPServer):
     def __init__(self, ip, port, handler):
         ThreadingUDPServer.__init__(self, (ip, port), handler)
         Thread.__init__(self, target=self.serve_forever)
@@ -49,10 +49,12 @@ class UDPServer(Thread, ThreadingUDPServer):
         ThreadingUDPServer.shutdown(self)
         Thread.join(self)
 
-if('linux' in platform):
+
+if ('linux' in platform):
     import socket
 
-    class RawServer(BaseServer, ThreadingMixIn, Thread):
+
+    class BaseRawServer(BaseServer, ThreadingMixIn, Thread):
 
         address_family = socket.AF_PACKET
 
@@ -79,7 +81,6 @@ if('linux' in platform):
                 except:
                     self.server_close()
                     raise
-
 
             # Set the thread name to the class name
             Thread.setName(self, f'{self.__class__.__name__} Server')

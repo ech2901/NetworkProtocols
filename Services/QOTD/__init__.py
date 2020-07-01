@@ -1,18 +1,48 @@
-from socketserver import BaseRequestHandler
-from Servers import TCPServer, UDPServer
-from os.path import exists
-
 import logging
+from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM
+from socketserver import BaseRequestHandler
+
+from BaseServers import BaseTCPServer, BaseUDPServer
+
+
+# This doesn't really need to be a class because the server should disconnect after sending data
+def TCPClient(ip: str):
+    """
+    Provided an IP address, retrieve QOTD from a server
+
+    :param ip: to_str
+    :return: bytes
+    """
+    with socket(AF_INET, SOCK_STREAM) as sock:
+        sock.connect((ip, 17))
+        data = sock.recv(1024)
+    return data
+
+
+# This doesn't really need to be a class because the server should disconnect after sending data
+def UDPClient(ip: str):
+    """
+    Provided an IP address, retrieve QOTD from a server
+
+    :param ip: to_str
+    :return: bytes
+    """
+    with socket(AF_INET, SOCK_DGRAM) as sock:
+        sock.sendto(b'', (ip, 17))
+        data = sock.recvfrom(1024)
+    return data[0]
+
 
 logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
+
 
 # Daytime Protocol described in RFC-865
 # https://tools.ietf.org/html/rfc865
 
-class TCPQOTDHandler(BaseRequestHandler):
+
+class TCPHandler(BaseRequestHandler):
     def handle(self):
         logging.info(f'{self.client_address[0]} CONNECTED')
-
 
         # Send Quote of the Day to client
         self.request.send(self.server.message)
@@ -21,7 +51,7 @@ class TCPQOTDHandler(BaseRequestHandler):
         logging.info(f'{self.client_address[0]} DISCONNECTED')
 
 
-class UDPQOTDHandler(BaseRequestHandler):
+class UDPHandler(BaseRequestHandler):
     def handle(self):
         logging.info(f'{self.client_address[0]} CONNECTED')
 
@@ -35,9 +65,9 @@ class UDPQOTDHandler(BaseRequestHandler):
         logging.info(f'{self.client_address[0]} DISCONNECTED')
 
 
-class TCPQOTDServer(TCPServer):
+class TCPServer(BaseTCPServer):
     def __init__(self, ip, message: bytes = b''):
-        TCPServer.__init__(self, ip, 17, TCPQOTDHandler)
+        BaseTCPServer.__init__(self, ip, 17, TCPHandler)
         # Message to send to clients
         self.message = message
 
@@ -45,12 +75,11 @@ class TCPQOTDServer(TCPServer):
         self.message = message
 
 
-class UDPQOTDServer(UDPServer):
+class UDPServer(BaseUDPServer):
     def __init__(self, ip, message: bytes = b''):
-        UDPServer.__init__(self, ip, 17, UDPQOTDHandler)
+        BaseUDPServer.__init__(self, ip, 17, UDPHandler)
         # Message to send to clients
         self.message = message
 
     def set_message(self, message: bytes):
         self.message = message
-

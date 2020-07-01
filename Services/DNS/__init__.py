@@ -1,14 +1,93 @@
 import ssl
-from socket import socket, AF_INET, SOCK_DGRAM, timeout
+from os import urandom
+from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, timeout
 from socketserver import BaseRequestHandler
 from struct import pack, unpack
 
-from Servers import UDPServer, TCPServer
-from .Classes import Packet, Type, Class, ResourceRecord
+from BaseServers import BaseUDPServer, BaseTCPServer
+from .Classes import Packet, Query, Type, Class, Packet, ResourceRecord
 from .Storage import BaseStorage
 
 
-class BaseDNSHandler(BaseRequestHandler):
+def UDPClient(url, *servers, **kwargs):
+    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
+    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
+                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
+                    questions=[request])
+
+    sock = socket(AF_INET, SOCK_DGRAM)
+    sock.settimeout(kwargs.get('timeout', 1))
+
+    for server in servers:
+        sock.sendto(packet.to_bytes(), (server, 53))
+
+        try:
+            data, addr = sock.recvfrom(65536)
+        except timeout:
+            continue
+
+        resp_packet = Packet.from_bytes(data)
+        if resp_packet.identification == packet.identification:
+            return resp_packet
+
+
+def TCPClient(url, *servers, **kwargs):
+    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
+    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
+                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
+                    questions=[request])
+
+    for server in servers:
+        try:
+            with socket(AF_INET, SOCK_STREAM) as sock:
+                sock.connect((server, 53))
+                sock.settimeout(kwargs.get('timeout', 1))
+
+                send_data = packet.to_bytes()
+
+                sock.send(pack('! H', len(send_data)) + send_data)
+
+                size = unpack('! H', sock.recv(2))[0]
+                data = sock.recv(size)
+
+                resp_packet = Packet.from_bytes(data)
+                if resp_packet.identification == packet.identification:
+                    return resp_packet
+        except timeout:
+            continue
+
+
+def SSLClient(url, *servers, **kwargs):
+    request = Query(url.encode(), kwargs.get('type', Type.A), kwargs.get('class', Class.IN))
+    packet = Packet(kwargs.get('id', int.from_bytes(urandom(2), 'big')),
+                    0, kwargs.get('opcode', 0), rd=kwargs.get('rd', True),
+                    questions=[request])
+
+    context = ssl.create_default_context()
+
+    for server in servers:
+        try:
+            with socket(AF_INET, SOCK_STREAM) as sock:
+                sock.connect((server, 853))
+                sock.settimeout(kwargs.get('timeout', 1))
+                with context.wrap_socket(sock, server_hostname=server) as s_sock:
+                    s_sock.do_handshake()
+
+                    send_data = packet.to_bytes()
+
+                    s_sock.send(pack('! H', len(send_data)) + send_data)
+
+                    size = unpack('! H', s_sock.recv(2))[0]
+                    data = s_sock.recv(size)
+
+                    resp_packet = Packet.from_bytes(data)
+                    if resp_packet.identification == packet.identification:
+                        return resp_packet
+        except timeout:
+            continue
+
+
+class BaseHandler(BaseRequestHandler):
 
     def lookup(self, query):
         packet = Packet(self.packet.identification,
@@ -77,7 +156,7 @@ class BaseDNSHandler(BaseRequestHandler):
             self.server.storage.add_cache(query, records)
 
 
-class TCPDNSHandler(BaseDNSHandler):
+class TCPHandler(BaseHandler):
 
     def get_packet(self):
         size = unpack('! H', self.request.recv(2))[0]
@@ -89,7 +168,7 @@ class TCPDNSHandler(BaseDNSHandler):
         self.request.send(data)
 
 
-class SSLDNSHandler(TCPDNSHandler):
+class SSLHandler(TCPHandler):
 
     def get_packet(self):
         self.request = self.server.context.wrap_socket(self.request, server_side=True)
@@ -99,7 +178,7 @@ class SSLDNSHandler(TCPDNSHandler):
         self.packet = Packet.from_bytes(self.request.recv(size))
 
 
-class UDPDNSHandler(BaseDNSHandler):
+class UDPHandler(BaseHandler):
 
     def get_packet(self):
         self.packet = Packet.from_bytes(self.request[0])
@@ -118,20 +197,18 @@ class BaseDNSServer(object):
         self.storage = storage
 
 
-
-
-class UDPDNSServer(UDPServer, BaseDNSServer):
-    def __init__(self, *servers, verbose=False):
-        UDPServer.__init__(self, '', 53, UDPDNSHandler)
-        BaseDNSServer.__init__(self, *servers, verbose=verbose)
-
-
-class TCPDNSServer(TCPServer, BaseDNSServer):
+class TCPServer(BaseTCPServer, BaseDNSServer):
     def __init__(self, *servers, verbose=False, enable_ssl=False):
         if enable_ssl:
             self.context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, )
-            TCPServer.__init__(self, '', 853, SSLDNSHandler)
+            BaseTCPServer.__init__(self, '', 853, SSLHandler)
         else:
-            TCPServer.__init__(self, '', 53, TCPDNSHandler)
+            BaseTCPServer.__init__(self, '', 53, TCPHandler)
 
+        BaseDNSServer.__init__(self, *servers, verbose=verbose)
+
+
+class UDPServer(BaseUDPServer, BaseDNSServer):
+    def __init__(self, *servers, verbose=False):
+        BaseUDPServer.__init__(self, '', 53, UDPHandler)
         BaseDNSServer.__init__(self, *servers, verbose=verbose)

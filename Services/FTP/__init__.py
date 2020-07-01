@@ -1,127 +1,32 @@
-from socketserver import BaseRequestHandler
-from Servers import TCPServer
-
+import logging
 from cmd import Cmd
-from os import path, urandom, mkdir, rmdir, remove, rename, scandir
-from hashlib import pbkdf2_hmac
-from string import digits, whitespace, punctuation
-from platform import platform
-from socket import socket, AF_INET, SOCK_STREAM, timeout
 from datetime import datetime, timedelta
-from threading import Thread
+from hashlib import pbkdf2_hmac
 from itertools import count
 from json import load, dump
+from os import path, urandom, mkdir, rmdir, remove, rename, scandir
+from platform import platform
+from socket import timeout
+from socketserver import BaseRequestHandler
+from string import digits, whitespace, punctuation
 
-import logging
+from BaseServers import BaseTCPServer
+from .Connections import ActiveConnection, PassiveConnection
+from .UtilityFunctions import sort_dir_entry
 
 logging.basicConfig(level=logging.INFO)
 sep = r'/'
+
 
 # FTP Protocol described in RFC-959
 # https://tools.ietf.org/html/rfc959
 
 
-class ActiveConnection(Thread):
-    def __init__(self, arg, binary):
-        Thread.__init__(self, target=self.connect)
-
-        addr_info = arg.split(',', 5)
-        self.ip = '.'.join(addr_info[:4])
-        self.port = (int(addr_info[4]) << 8) | int(addr_info[5])
-        self.binary = binary
-
-        self.sock = socket(AF_INET, SOCK_STREAM)
-        self.fd_write = self.sock.makefile('wb' if binary else 'w')
-        self.fd_read = self.sock.makefile('rb' if self.binary else 'r')
-
-    def connect(self):
-        self.sock.connect((self.ip, self.port))
-
-    def send(self, data):
-        self.fd_write.write(data)
-
-    def send_blank(self):
-        self.fd_write.write(b'' if self.binary else '')
-
-    def send_crlf(self):
-        self.fd_write.write(b'\r\n' if self.binary else '\r\n')
-
-    def close(self):
-        self.sock.close()
-
-    def update(self, binary):
-        self.fd_write = self.sock.makefile('wb' if binary else 'w')
-        self.fd_read = self.sock.makefile('rb' if self.binary else 'r')
-
-    def read(self, fileloc, skip):
-        with open(fileloc, 'rb' if self.binary else 'r') as file:
-            self.fd_write.write(file.read())
-
-    def write(self, fileloc, skip):
-        with open(fileloc, 'wb' if self.binary else 'w') as file:
-            file.write(self.fd_read.read())
-
-    def append(self, fileloc, skip):
-        with open(fileloc, 'ab' if self.binary else 'a') as file:
-            file.write(self.fd_read.read())
-
-
-class PassiveConnection(Thread):
-    def __init__(self, ip, binary, port=0, ):
-        Thread.__init__(self, target=self.connect)
-        self.sock = socket(AF_INET, SOCK_STREAM)
-        self.sock.bind((ip, port))
-        self.binary = binary
-
-        self.sock.listen(1)
-
-    def connect(self):
-
-        sock, _ = self.sock.accept()
-        self.sock.close()
-        self.sock = sock
-        self.fd_write = sock.makefile('wb' if self.binary else 'w')
-        self.fd_read = sock.makefile('rb' if self.binary else 'r')
-
-    def get_str(self):
-        ip, port = self.sock.getsockname()
-        p1 = (port & 0xff00) >> 8
-        p2 = port & 0x00ff
-        return f'{ip.replace(".", ",")},{p1},{p2}'
-
-    def send(self, data):
-        self.fd_write.write(data)
-
-    def send_blank(self):
-        self.fd_write.write(b'' if self.binary else '')
-
-    def send_crlf(self):
-        self.fd_write.write(b'\r\n' if self.binary else '\r\n')
-
-    def close(self):
-        self.sock.close()
-
-    def update(self, binary):
-        self.binary = binary
-
-    def read(self, fileloc, skip):
-        with open(fileloc, 'rb' if self.binary else 'r') as file:
-            self.send(file.read()[skip:])
-
-    def write(self, fileloc, skip):
-        with open(fileloc, 'wb' if self.binary else 'w') as file:
-            file.write(self.fd_read.read())
-
-    def append(self, fileloc, skip):
-        with open(fileloc, 'ab' if self.binary else 'a') as file:
-            file.write(self.fd_read.read())
-
-
-class FTPCommandHandler(BaseRequestHandler, Cmd):
+class TCPHandler(BaseRequestHandler, Cmd):
     def setup(self):
         self.server.active = self.server.active + 1
 
-        self.request.settimeout(60*5)
+        self.request.settimeout(60 * 5)
         sock_read = self.request.makefile('r')
         self.sock_write = self.request.makefile('w')
 
@@ -203,13 +108,13 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         # path to the requested location.
 
         return path.commonpath(
-                    (
-                            # Find common path between requested path and
-                            # Home directory
-                            path.abspath(self.home),
-                            path.abspath(dir)
-                    )
-                                ) == path.abspath(self.home)
+            (
+                # Find common path between requested path and
+                # Home directory
+                path.abspath(self.home),
+                path.abspath(dir)
+            )
+        ) == path.abspath(self.home)
 
     def exists(self, fileloc):
         # Measure to check that the given file path actually exists under the home directory.
@@ -236,7 +141,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         # Size of file / directory.
         size = f'{stats.st_size}'.rjust(13, ' ')
 
-        if datetime.now()-timedelta(days=30*6) > datetime.fromtimestamp(stats.st_mtime):
+        if datetime.now() - timedelta(days=30 * 6) > datetime.fromtimestamp(stats.st_mtime):
             # If last modification was more than 6 months ago
             # Set format to month, day, year format
             modification = datetime.fromtimestamp(stats.st_mtime).strftime('%b %d %Y')
@@ -267,7 +172,7 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.send('200 Command okay.')
 
     def do_user(self, username):
-        if len(username) == 0 or ' ' in username or username[0] in whitespace+punctuation+digits:
+        if len(username) == 0 or ' ' in username or username[0] in whitespace + punctuation + digits:
             # Check for invalid characters in username
             self.send('501 Failed to log in: Bad characters in username.')
             return
@@ -451,7 +356,6 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
             # Check to make sure parameters were provided
             self.send('501 Syntax error in parameters or arguments.')
             return
-
 
         if self.selected == '':
             # Check to see if we're logged in.
@@ -672,8 +576,6 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
 
         self.send('150 Processing...')
 
-
-
         try:
             self.connection.start()
             self.connection.join(timeout=30)
@@ -727,7 +629,6 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         if dir:
             self.logging.info(dir)
             for entry in dir:
-
                 data = f'{self.selected}{entry.name}\r\n'
                 self.logging.info(data.strip())
                 self.connection.send(data.encode() if self.binary else data)
@@ -776,9 +677,9 @@ class FTPCommandHandler(BaseRequestHandler, Cmd):
         self.send('530 Need to sign in.')
 
 
-class FTPCommandServer(TCPServer):
+class TCPServer(BaseTCPServer):
     def __init__(self, ip: str, public=False, req_pass=True, root_dir: str = path.curdir):
-        TCPServer.__init__(self, ip, 21, FTPCommandHandler)
+        BaseTCPServer.__init__(self, ip, 21, TCPHandler)
         self.ip = ip  # Server IP address.
         self.active = 0  # Active number of clients communicating.
 
@@ -806,7 +707,6 @@ class FTPCommandServer(TCPServer):
         fh = logging.FileHandler(f'{self.root}{path.sep}logs{path.sep}server.log')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         self.logging.addHandler(fh)
-
 
         if public:
             # If this is a public server, create an anonymous account with no password info.
@@ -890,18 +790,3 @@ class FTPCommandServer(TCPServer):
         if path.exists(file):
             with open(f'{self.root}{path.sep}userdata{path.sep}userdata.dat', 'r') as file:
                 self.userdata.update(load(file))
-
-
-def sort_dir_entry(entry):
-    # Key for sorted to sort DirEntry objects
-    if entry.is_file():
-        # This ensures that directories always get transmitted first and file second.
-        return f'1{entry.name}'
-    return f'0{entry.name}'
-
-if __name__ == '__main__':
-    server = FTPCommandServer('127.0.0.1', root_dir=r'A:\Programing\Python\Projects\NetworkProtocols\FTP_DATA')
-    server.add_user('tester', 'test')
-    server.start()
-
-
