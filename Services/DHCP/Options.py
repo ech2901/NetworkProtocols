@@ -1,10 +1,7 @@
-from collections import namedtuple
 from dataclasses import dataclass, field
 from ipaddress import ip_address, ip_interface
 from struct import pack, unpack
 from typing import Dict, List
-
-Option = namedtuple('Option', ['code', 'length', 'data'])
 
 
 class BaseOption(object):
