@@ -9,6 +9,7 @@ from .TwosComplement import *
 def _get_int_bytes_(data: int):
     return round((data.bit_length() / 8) + 0.4)
 
+
 class BaseFormatter(object):
     classes: Dict = dict()
 
@@ -21,8 +22,8 @@ class BaseFormatter(object):
         cls.classes[cls.tag.default] = cls
 
     @staticmethod
-    def get(tag, formatter_id: int):
-        return BaseFormatter.classes.get(tag, BaseFormatter)(formatter_id)
+    def get(tag, data: bytes):
+        return BaseFormatter.classes.get(tag, BaseFormatter)(data)
 
     def __bytes__(self):
         return self._raw_data_
@@ -221,8 +222,12 @@ class Real(BaseFormatter):
 
         sign = -1 if sign_bin else 1
 
-        if base_bin != 3:
-            base = pow(2, 1 + base_bin)
+        if base_bin == 0:
+            base = 2
+        elif base_bin == 1:
+            base = 8
+        elif base_bin == 2:
+            base = 16
         else:
             # X.690 reserves this for future editions.
             pass
@@ -250,7 +255,8 @@ class Real(BaseFormatter):
             octets = octets[exp_byte_count + 2:]
 
         number = int.from_bytes(octets, 'big')
-
+        print(sign, number, factor)
+        print(base, exponent)
         m = sign * number * pow(2, factor)
         self.data = m * pow(base, exponent)
 
@@ -342,3 +348,9 @@ class Real(BaseFormatter):
 
             m_bytes = (m.bit_length() + 7) // 8
             return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'))
+
+
+@dataclass(init=False)
+class BitString(BaseFormatter):
+    data: str
+    tag: IdentityTag = field(default=IdentityTag.BitString, repr=False)

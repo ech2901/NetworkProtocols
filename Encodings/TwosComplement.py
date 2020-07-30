@@ -1,25 +1,12 @@
-def to_complement(data: int, size: int):
-    if data == 0:
-        return 0
-
+def to_complement(data: int, size: int, *, output=int):
     if data < 0:
-        out = -data
+        return output((1 << size) + data)
     else:
-        compliment = 1 << size
-        out = compliment - data
-
-    return int(out)
+        return output(data)
 
 
 def from_complement(data: int, size: int):
-    if data == 0:
-        return 0
-
-    compliment = 1 << size
-    out = compliment - data
-
-    mask_check = compliment >> 1
-    if mask_check & out:
-        out = (out ^ mask_check) - mask_check
-
-    return int(out)
+    compliment = 1 << (size - 1)
+    if data & compliment:
+        return -((1 << size) - data)
+    return data
