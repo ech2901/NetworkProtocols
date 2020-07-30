@@ -1,7 +1,13 @@
 from dataclasses import dataclass, field
 from enum import IntFlag
+from math import log
 from typing import Any, Dict
 
+from .TwosComplement import *
+
+
+def _get_int_bytes_(data: int):
+    return round((data.bit_length() / 8) + 0.4)
 
 class BaseFormatter(object):
     classes: Dict = dict()
@@ -162,39 +168,12 @@ class Integer(BaseFormatter):
     def __init__(self, data: bytes):
         super().__init__(data)
 
-        if data == b'\x00':
-            self.data = 0
-        else:
-            # Get two's compliment.
-
-            compliment = 1 << (len(data) * 8)
-            raw_data = int.from_bytes(data, 'big')
-            self.data = compliment - raw_data
-
-            mask_check = compliment >> 1
-            if mask_check & self.data:
-                self.data = (self.data ^ mask_check) - mask_check
+        self.data = from_complement(int.from_bytes(data, 'big'), 8 * len(data))
 
     @classmethod
     def encode(cls, data: int):
-        if data == 0:
-            return cls(b'\x00')
-        # The smallest bit_length for a non-zero number is 1 bit.
-        # Because 1/8 = 0.125, adding 0.4 to that will force it to round up with the round builtin.
-        # Also because 7/8 = 0.875, adding 0.4 won't allow the value to round up more than needed.
-        # 0.4 was chosen because the round builtin rounds to 0 when given a value <= 0.5.
-        # EG: round(0.5) => 0
-        # EG: round(0.50000000000000001) => 0
-        # EG: round(0.5000000000000001) => 1
-        # EG: round(1.5) => 2
-
-        byte_count = round((data.bit_length() / 8) + 0.4)
-        if data < 0:
-            out = -data
-        else:
-
-            compliment = 1 << 8 * byte_count
-            out = compliment - data
+        byte_count = _get_int_bytes_(data)
+        out = to_complement(data, 8 * byte_count)
 
         return cls(out.to_bytes(byte_count, 'big'))
 
@@ -221,9 +200,145 @@ class Real(BaseFormatter):
 
     def __init__(self, data: bytes):
         super().__init__(data)
-        self.data = int.from_bytes(data, 'big')
+        octets = list(data)
+        value = (octets[0] >> 6)
+        if value == 3:
+            # x.690 does not implement this currently.
+            pass
+        elif value == 2:
+            self._standard_format_(octets)
+        elif value == 1:
+            self._special_format_(octets)
+        else:
+            self._iso_format_(octets)
+
+    def _standard_format_(self, octets: list):
+        encoding_format = octets.pop(0)
+        sign_bin = (encoding_format >> 6) & 0b01
+        base_bin = (encoding_format >> 4) & 0b11
+        factor = (encoding_format >> 2) & 0b11
+        format_bin = encoding_format & 0b11
+
+        sign = -1 if sign_bin else 1
+
+        if base_bin != 3:
+            base = pow(2, 1 + base_bin)
+        else:
+            # X.690 reserves this for future editions.
+            pass
+
+        octets = bytes(octets)
+
+        if format_bin == 0:
+            exponent = from_complement(octets[0], 8)
+            octets = octets[1:]
+
+        elif format_bin == 1:
+            temp_exp = int.from_bytes(octets[0:2], 'big')
+            exponent = from_complement(temp_exp, 16)
+            octets = octets[2:]
+
+        elif format_bin == 2:
+            temp_exp = int.from_bytes(octets[0:3], 'big')
+            exponent = from_complement(temp_exp, 24)
+            octets = octets[3:]
+
+        else:
+            exp_byte_count = octets[0]
+            temp_exp = int.from_bytes(octets[1:exp_byte_count + 2], 'big')
+            exponent = from_complement(temp_exp, 8 * exp_byte_count)
+            octets = octets[exp_byte_count + 2:]
+
+        number = int.from_bytes(octets, 'big')
+
+        m = sign * number * pow(2, factor)
+        self.data = m * pow(base, exponent)
+
+    def _iso_format_(self, octets: list):
+        # TODO Implement ISO 6093 NR1 form for case 0b01
+        # TODO Implement ISO 6093 NR2 form for case 0b10
+        # TODO Implement ISO 6093 NR3 form for case 0b11
+        # TODO Buy ISO 6093 standard so this can be implemented
+        pass
+
+    def _special_format_(self, octets: list):
+        value = octets[0] & 0b11
+
+        if value == 3:
+            self.data = float('-0')
+        elif value == 2:
+            self.data = float('nan')
+        elif value == 1:
+            self.data = float('-inf')
+        else:
+            self.data = float('inf')
 
     @classmethod
-    def encode(cls, data: int):
-        byte_count = round((data.bit_length() / 8) + 0.4)
-        return cls(data.to_bytes(byte_count, 'big'))
+    def encode(cls, data: float, base10=False):
+        data = float(data)
+
+        if data == float('-0'):
+            return cls(b'\x43')
+        elif data == float('nan'):
+            return cls(b'\x42')
+        elif data == float('-inf'):
+            return cls(b'\x41')
+        elif data == float('inf'):
+            return cls(b'\x40')
+        elif base10:
+            # Need to purchase ISO 6093 to do this part
+            pass
+        else:
+            m, e = float(data).as_integer_ratio()
+            e = -int(log(e, 2))
+            if e == 0:
+                while m % 2 == 0:
+                    e = e + 1
+                    m = m // 2
+
+            if m < 0:
+                m = -m
+                sign = 1
+            else:
+                sign = 0
+
+            byte_count = (e.bit_length() + 7) // 8
+            if e % 4 == 0:
+                e = to_complement(e / 4, byte_count * 8)
+                base = 2
+            elif e % 3 == 0:
+                e = to_complement(e / 3, byte_count * 8)
+                base = 1
+            else:
+                e = to_complement(e, byte_count * 8)
+                base = 0
+
+            if m % 8 == 0:
+                m = m / 8
+                f = 3
+            elif m % 4 == 0:
+                m = m / 4
+                f = 2
+            elif m % 2 == 0:
+                m = m / 2
+                f = 1
+            else:
+                f = 0
+
+            if byte_count == 1:
+                e_bytes = e.to_bytes(1, 'big')
+                e_bits = 00
+            elif byte_count == 2:
+                e_bytes = e.to_bytes(2, 'big')
+                e_bits = 1
+            elif byte_count == 3:
+                e_bytes = e.to_bytes(3, 'big')
+                e_bits = 2
+            else:
+                e_bytes = byte_count.to_bytes(1, 'big') + e.to_bytes(byte_count, 'big')
+                e_bits = 3
+
+            octet = bytes([128 | sign << 6 | base << 4 | f << 2 | e_bits])
+
+            m_bytes = (m.bit_length() + 7) // 8
+            return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'))
