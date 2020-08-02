@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import IntFlag
 from math import log
-from typing import Any, Dict
+from typing import Dict
 
 from .TwosComplement import *
 
@@ -112,7 +112,7 @@ class Identity(object):
 class BER(object):
     ber_id: Identity
     ber_length: int
-    ber_content: Any
+    ber_content: BaseFormatter
 
     @classmethod
     def decode(cls, data):
@@ -120,7 +120,25 @@ class BER(object):
         ber_id, list_data = Identity.decode(list_data)
         ber_length = list_data.pop(0)
 
-        if ber_length & 128:
+        if ber_length == 128:
+            # Indefinate form being used.
+            # Should only be used for BitString, OctetString, and String types.
+            ber_indef, data = cls.decode(bytes(list_data))
+            ber_content = ber_indef.ber_content
+            while True:
+                ber_indef, data = cls.decode(data)
+                if ber_indef.ber_id.id_tag == IdentityTag.EOC:
+                    break
+                ber_content = ber_content + ber_indef.ber_content
+
+            return cls(ber_id, 0, ber_content), data
+
+
+
+
+
+        elif ber_length & 128:
+            # Long form of length being used.
             byte_count = ber_length & 127
             ber_length = 0
             for i in range(byte_count):
@@ -131,17 +149,13 @@ class BER(object):
 
         if list_data:
             return cls(ber_id, ber_length, BaseFormatter.get(ber_id.id_tag, ber_content)), bytes(list_data)
-        return cls(ber_id, ber_length, BaseFormatter.get(ber_id.id_tag, ber_content))
+        return cls(ber_id, ber_length, BaseFormatter.get(ber_id.id_tag, ber_content)), None
 
 
 @dataclass(init=False)
 class EOC(BaseFormatter):
-    data: bool
+    data: None = None
     tag: IdentityTag = field(default=IdentityTag.EOC, repr=False)
-
-    def __init__(self, data):
-        super().__init__(data)
-        self.data = bytes()
 
 
 @dataclass(init=False)
@@ -352,5 +366,29 @@ class Real(BaseFormatter):
 
 @dataclass(init=False)
 class BitString(BaseFormatter):
-    data: str
+    data: int
     tag: IdentityTag = field(default=IdentityTag.BitString, repr=False)
+
+    def __init__(self, data: bytes):
+        super().__init__(data)
+        unused = data[0]
+        self.data = int.from_bytes(data[1:], 'big') >> unused
+        self._bitcount_ = (len(data[1:]) * 8) - unused
+
+    def __add__(self, other):
+        # For when indefinate form being used and want an easy way of converting.
+        data = (self.data << other._bitcount_) + other.data
+        return BitString.encode(data, self._bitcount_ + other._bitcount_)
+
+    @classmethod
+    def encode(cls, data: int, size: int = None):
+        if size:
+            # If we want a specific size to use that may have leading 0's
+            # EG: 0x0000004f would normally be encoded as b'\x00\x4f' otherwise.
+            byte_count = (size + 7) // 8
+        else:
+            byte_count = (data.bit_length() + 7) // 8
+
+        padding = 8 - (data.bit_length() % 8)
+        print(data, byte_count, padding)
+        return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'))
