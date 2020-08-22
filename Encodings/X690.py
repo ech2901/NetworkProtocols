@@ -409,3 +409,16 @@ class OctetString(BaseFormatter):
     @classmethod
     def encode(cls, data: SupportsBytes):
         return cls(bytes(data))
+
+
+@dataclass(init=False)
+class Null(BaseFormatter):
+    data: None
+    tag: IdentityTag = field(IdentityTag.Null, repr=False)
+
+    def __init__(self, data: None = None):
+        super().__init__(b'')
+
+    @classmethod
+    def encode(cls, data: None = None):
+        return cls(None)
