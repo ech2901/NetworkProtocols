@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import IntFlag
 from math import log
-from typing import Dict
+from typing import Dict, SupportsBytes
 
 from .TwosComplement import *
 
@@ -387,8 +387,25 @@ class BitString(BaseFormatter):
             # EG: 0x0000004f would normally be encoded as b'\x00\x4f' otherwise.
             byte_count = (size + 7) // 8
         else:
-            byte_count = (data.bit_length() + 7) // 8
+            byte_count = _get_int_bytes_(data)
 
         padding = 8 - (data.bit_length() % 8)
         print(data, byte_count, padding)
         return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'))
+
+
+@dataclass(init=False)
+class OctetString(BaseFormatter):
+    data: bytes
+    tag: IdentityTag = field(default=IdentityTag.OctetString, repr=False)
+
+    def __init__(self, data: bytes):
+        super().__init__(data)
+        self.data = self.data
+
+    def __add__(self, other):
+        return OctetString(self.data + other.data)
+
+    @classmethod
+    def encode(cls, data: SupportsBytes):
+        return cls(bytes(data))
