@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import IntFlag
 from math import log
-from typing import Dict, SupportsBytes
+from typing import Dict, SupportsBytes, List, AnyStr
 
 from .TwosComplement import *
 
@@ -53,6 +53,9 @@ class IdentityTag(IntFlag):
     OctetString = 4
     Null = 5
     ObjectIdentifier = 6
+    # https://www.obj-sys.com/asn1tutorial/node13.html
+    # 'ObjectDescriptor is used with the OBJECT IDENTIFIER type and takes values that are human-readable strings
+    # delimited by quotes. The type has seldom been implemented, and will not be discussed further.'
     ObjectDescriptor = 7
     External = 8
     Real = 9
@@ -133,10 +136,6 @@ class BER(object):
 
             return cls(ber_id, 0, ber_content), data
 
-
-
-
-
         elif ber_length & 128:
             # Long form of length being used.
             byte_count = ber_length & 127
@@ -163,16 +162,19 @@ class Boolean(BaseFormatter):
     data: bool
     tag: IdentityTag = field(default=IdentityTag.Boolean, repr=False)
 
-    def __init__(self, data):
+    def __init__(self, data, value=None):
         super().__init__(data)
-        self.data = bool.from_bytes(data, 'big')
+        if value:
+            self.data = data
+        else:
+            self.data = bool.from_bytes(data, 'big')
 
     @classmethod
     def encode(cls, data: bool):
         if data:
-            return cls('\xff')
+            return cls(b'\xff', data)
         else:
-            return cls(b'\x00')
+            return cls(b'\x00', data)
 
 
 @dataclass(init=False)
@@ -180,17 +182,19 @@ class Integer(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.Integer, repr=False)
 
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, value=None):
         super().__init__(data)
-
-        self.data = from_complement(int.from_bytes(data, 'big'), 8 * len(data))
+        if value:
+            self.data = value
+        else:
+            self.data = from_complement(int.from_bytes(data, 'big'), 8 * len(data))
 
     @classmethod
     def encode(cls, data: int):
         byte_count = _get_int_bytes_(data)
         out = to_complement(data, 8 * byte_count)
 
-        return cls(out.to_bytes(byte_count, 'big'))
+        return cls(out.to_bytes(byte_count, 'big'), data)
 
 
 @dataclass(init=False)
@@ -198,14 +202,17 @@ class Enumerated(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.Enumerated, repr=False)
 
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, value=None):
         super().__init__(data)
-        self.data = int.from_bytes(data, 'big')
+        if value:
+            self.data = value
+        else:
+            self.data = int.from_bytes(data, 'big')
 
     @classmethod
     def encode(cls, data: int):
         byte_count = round((data.bit_length() / 8) + 0.4)
-        return cls(data.to_bytes(byte_count, 'big'))
+        return cls(data.to_bytes(byte_count, 'big'), data)
 
 
 @dataclass(init=False)
@@ -213,19 +220,22 @@ class Real(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.Real, repr=False)
 
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, value=None):
         super().__init__(data)
-        octets = list(data)
-        value = (octets[0] >> 6)
-        if value == 3:
-            # x.690 does not implement this currently.
-            pass
-        elif value == 2:
-            self._standard_format_(octets)
-        elif value == 1:
-            self._special_format_(octets)
+        if value:
+            self.data = value
         else:
-            self._iso_format_(octets)
+            octets = list(data)
+            value = (octets[0] >> 6)
+            if value == 3:
+                # x.690 does not implement this currently.
+                pass
+            elif value == 2:
+                self._standard_format_(octets)
+            elif value == 1:
+                self._special_format_(octets)
+            else:
+                self._iso_format_(octets)
 
     def _standard_format_(self, octets: list):
         encoding_format = octets.pop(0)
@@ -269,8 +279,6 @@ class Real(BaseFormatter):
             octets = octets[exp_byte_count + 2:]
 
         number = int.from_bytes(octets, 'big')
-        print(sign, number, factor)
-        print(base, exponent)
         m = sign * number * pow(2, factor)
         self.data = m * pow(base, exponent)
 
@@ -298,13 +306,13 @@ class Real(BaseFormatter):
         data = float(data)
 
         if data == float('-0'):
-            return cls(b'\x43')
+            return cls(b'\x43', data)
         elif data == float('nan'):
-            return cls(b'\x42')
+            return cls(b'\x42', data)
         elif data == float('-inf'):
-            return cls(b'\x41')
+            return cls(b'\x41', data)
         elif data == float('inf'):
-            return cls(b'\x40')
+            return cls(b'\x40', data)
         elif base10:
             # Need to purchase ISO 6093 to do this part
             pass
@@ -361,7 +369,7 @@ class Real(BaseFormatter):
             octet = bytes([128 | sign << 6 | base << 4 | f << 2 | e_bits])
 
             m_bytes = (m.bit_length() + 7) // 8
-            return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'))
+            return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'), data)
 
 
 @dataclass(init=False)
@@ -369,10 +377,13 @@ class BitString(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.BitString, repr=False)
 
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, value=None):
         super().__init__(data)
-        unused = data[0]
-        self.data = int.from_bytes(data[1:], 'big') >> unused
+        if value:
+            self.data = value
+        else:
+            unused = data[0]
+            self.data = int.from_bytes(data[1:], 'big') >> unused
         self._bitcount_ = (len(data[1:]) * 8) - unused
 
     def __add__(self, other):
@@ -390,8 +401,7 @@ class BitString(BaseFormatter):
             byte_count = _get_int_bytes_(data)
 
         padding = 8 - (data.bit_length() % 8)
-        print(data, byte_count, padding)
-        return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'))
+        return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'), data)
 
 
 @dataclass(init=False)
@@ -399,7 +409,9 @@ class OctetString(BaseFormatter):
     data: bytes
     tag: IdentityTag = field(default=IdentityTag.OctetString, repr=False)
 
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, value=None):
+        # value never gets used. Only implemented as an argument
+        # to maintain structure similarities to other classes.
         super().__init__(data)
         self.data = self.data
 
@@ -414,11 +426,135 @@ class OctetString(BaseFormatter):
 @dataclass(init=False)
 class Null(BaseFormatter):
     data: None
-    tag: IdentityTag = field(IdentityTag.Null, repr=False)
+    tag: IdentityTag = field(default=IdentityTag.Null, repr=False)
 
     def __init__(self, data: None = None):
+        # value and data never gets used. Only implemented as an argument
+        # to maintain structure similarities to other classes.
         super().__init__(b'')
+        self.data = None
 
     @classmethod
     def encode(cls, data: None = None):
         return cls(None)
+
+
+@dataclass(init=False)
+class Sequence(BaseFormatter):
+    data: List
+    tag: IdentityTag = field(default=IdentityTag.Sequence, repr=False)
+
+    def __init__(self, data: bytes, value=None):
+        super().__init__(data)
+        if value:
+            self.data = value
+        else:
+            self.data = list()
+            while data:
+                encoding, data = BER.decode(data)
+                self.data.append(encoding.ber_content)
+
+    @classmethod
+    def encode(cls, *args):
+        data = b''
+        for arg in args:
+            data = data + arg.decode()
+        return cls(data, list(args))
+
+
+@dataclass(init=False)
+class Set(BaseFormatter):
+    data: List
+    tag: IdentityTag = field(default=IdentityTag.Set, repr=False)
+
+    def __init__(self, data: bytes, value=None):
+        super().__init__(data)
+        if value:
+            self.data = value
+        else:
+            self.data = list()
+            while data:
+                encoding, data = BER.decode(data)
+                self.data.append(encoding.ber_content)
+
+    @classmethod
+    def encode(cls, *args):
+        data = b''
+        for arg in args:
+            data = data + arg.decode()
+        return cls(data, list(args))
+
+
+@dataclass(init=False)
+class ObjectIdentifier(BaseFormatter):
+    data: List
+    tag: IdentityTag = field(default=IdentityTag.ObjectIdentifier, repr=False)
+
+    def __init__(self, data: bytes, value=None):
+        super().__init__(data)
+        if value:
+            self.data = value
+        else:
+            self.data = list()
+            data = list(data)
+            while data:
+                value = data.pop(0)
+                if value & 128:
+                    temp_val = (value & 127)
+                    while value & 128:
+                        temp_val = temp_val << 7
+                        value = data.pop(0)
+                        temp_val = temp_val | (value & 127)
+                    value = temp_val
+
+                self.data.append(value)
+
+    @classmethod
+    def encode(cls, OID, *args):
+        def transform(val: int):
+            # Turn integer into format compatible with OID
+            # bit 7 marks end of number with a 0
+            # bits 6-0 are used to denote an actual number base 128
+            # IE: 0xFF becomes 0x817f due to leading bit moving to second byte
+            data = list()
+            data.append(val & 127)
+            val = val >> 7
+            while val:
+                data.insert(0, 128 | (val & 127))
+                val = val >> 7
+            return bytes(data)
+
+        if type(OID) == str:
+            nums = list(map(int, OID.split('.')))
+        else:
+            nums = [OID, ]
+            nums.extend(args)
+
+        data = b''
+        for num in nums:
+            data = data + transform(num)
+
+        return cls(data, nums)
+
+
+@dataclass(init=False)
+class ObjectDescriptor(BaseFormatter):
+    data: AnyStr
+    tag: IdentityTag = field(default=IdentityTag.ObjectDescriptor, repr=False)
+
+    def __init__(self, data: bytes, value=None):
+        super().__init__(data)
+        if value:
+            self.data = value
+        else:
+            self.data = data.decode()
+
+    @classmethod
+    def encode(cls, data: AnyStr):
+
+        if data.startswith("'") and data.endswith("'"):
+            return cls(data.encode(), data)
+        elif data.startswith('"') and data.endswith('"'):
+            return cls(data.encode(), data)
+        else:
+            return cls(f'"{data}"'.encode(), data)
