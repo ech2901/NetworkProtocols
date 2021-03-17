@@ -3,7 +3,7 @@ from enum import IntFlag
 from math import log
 from typing import Dict, SupportsBytes, List, AnyStr
 
-from .TwosComplement import *
+from Encodings.TwosComplement import *
 
 
 def _get_int_bytes_(data: int):
@@ -31,6 +31,16 @@ class BaseFormatter(object):
     @classmethod
     def encode(cls, data):
         pass
+
+    def decode(self):
+        # TODO: handle long and indeterminant length
+
+        size_id = len(self._raw_data_)
+
+        if size_id >= 128:
+            pass
+        else:
+            return bytes(self.tag) + size_id.to_bytes(1, 'big') + self._raw_data_
 
 
 class IdentityClass(IntFlag):
@@ -86,6 +96,9 @@ class IdentityTag(IntFlag):
     OIDIRI = 35
     RelativeOIDIRI = 36
 
+    def __bytes__(self):
+        return self.value.to_bytes(1, 'big')
+
 
 @dataclass
 class Identity(object):
@@ -109,46 +122,6 @@ class Identity(object):
                     break
 
         return cls(id_class, id_pc, IdentityTag(id_tag)), data
-
-
-@dataclass
-class BER(object):
-    ber_id: Identity
-    ber_length: int
-    ber_content: BaseFormatter
-
-    @classmethod
-    def decode(cls, data):
-        list_data = list(data)
-        ber_id, list_data = Identity.decode(list_data)
-        ber_length = list_data.pop(0)
-
-        if ber_length == 128:
-            # Indefinate form being used.
-            # Should only be used for BitString, OctetString, and String types.
-            ber_indef, data = cls.decode(bytes(list_data))
-            ber_content = ber_indef.ber_content
-            while True:
-                ber_indef, data = cls.decode(data)
-                if ber_indef.ber_id.id_tag == IdentityTag.EOC:
-                    break
-                ber_content = ber_content + ber_indef.ber_content
-
-            return cls(ber_id, 0, ber_content), data
-
-        elif ber_length & 128:
-            # Long form of length being used.
-            byte_count = ber_length & 127
-            ber_length = 0
-            for i in range(byte_count):
-                ber_length = ber_length + list_data.pop(0)
-
-        ber_content = bytes(list_data[:ber_length])
-        list_data = list_data[ber_length:]
-
-        if list_data:
-            return cls(ber_id, ber_length, BaseFormatter.get(ber_id.id_tag, ber_content)), bytes(list_data)
-        return cls(ber_id, ber_length, BaseFormatter.get(ber_id.id_tag, ber_content)), None
 
 
 @dataclass(init=False)
