@@ -10,6 +10,39 @@ def _get_int_bytes_(data: int):
     return round((data.bit_length() / 8) + 0.4)
 
 
+def decode_bytes(data: bytes):
+    list_data = list(data)
+    encoding_id, list_data = Identity.decode(list_data)
+    encoding_length = list_data.pop(0)
+
+    if encoding_length == 128:
+        # Indefinate form being used.
+        # Should only be used for BitString, OctetString, and String types.
+        encoding_indef, data = decode_bytes(bytes(list_data))
+        encoding_content = encoding_indef.ber_content
+        while True:
+            encoding_indef, data = decode_bytes(data)
+            if encoding_indef.ber_id.id_tag == IdentityTag.EOC:
+                break
+            encoding_content = encoding_content + encoding_indef.ber_content
+
+        return encoding_id, 0, encoding_content, data
+
+    elif encoding_length & 128:
+        # Long form of length being used.
+        byte_count = encoding_length & 127
+        encoding_length = 0
+        for i in range(byte_count):
+            encoding_length = encoding_length + list_data.pop(0)
+
+    encoding_content = bytes(list_data[:encoding_length])
+    list_data = list_data[encoding_length:]
+
+    if list_data:
+        return encoding_id, encoding_length, BaseFormatter.get(encoding_id.id_tag, encoding_content), bytes(list_data)
+    return encoding_id, encoding_length, BaseFormatter.get(encoding_id.id_tag, encoding_content), None
+
+
 class BaseFormatter(object):
     classes: Dict = dict()
 
@@ -424,7 +457,7 @@ class Sequence(BaseFormatter):
         else:
             self.data = list()
             while data:
-                encoding, data = BER.decode(data)
+                _, _, encoding, data = decode_bytes(data)
                 self.data.append(encoding.ber_content)
 
     @classmethod
@@ -447,7 +480,7 @@ class Set(BaseFormatter):
         else:
             self.data = list()
             while data:
-                encoding, data = BER.decode(data)
+                _, _, encoding, data = decode_bytes(data)
                 self.data.append(encoding.ber_content)
 
     @classmethod
