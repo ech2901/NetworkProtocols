@@ -168,6 +168,9 @@ class Identity(object):
 
         return cls(id_class, id_pc, IdentityTag(id_tag)), data
 
+    def __repr__(self):
+        return f'Identity(id={repr(self.id_class)}, pc={repr(self.id_pc)}, tag={repr(self.id_tag)})'
+
 
 class EOC(BaseFormatter):
     data: None = None
