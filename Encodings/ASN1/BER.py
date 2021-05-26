@@ -16,3 +16,6 @@ class BER(object):
             ber_id, ber_length, ber_content, data = decode_bytes(data)
             output.append(cls(ber_id, ber_length, ber_content))
         return output
+
+    def __repr__(self):
+        return f'BER(id={repr(self.ber_id)}, length={self.ber_length}, content={self.ber_content})'

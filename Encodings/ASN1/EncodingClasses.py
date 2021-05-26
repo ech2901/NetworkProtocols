@@ -17,7 +17,7 @@ def decode_bytes(data: bytes):
 
     if encoding_length == 128:
         # Indefinate form being used.
-        # Should only be used for BitString, OctetString, and String types.
+        # Should only be used for Bit_String, Octet_String, and String types.
         encoding_indef, data = decode_bytes(bytes(list_data))
         encoding_content = encoding_indef.ber_content
         while True:
@@ -36,7 +36,7 @@ def decode_bytes(data: bytes):
             encoding_length = encoding_length + list_data.pop(0)
 
     encoding_content = bytes(list_data[:encoding_length])
-    list_data = list_data[encoding_length:]
+    list_data = list_data[encoding_length + 2:]
 
     if list_data:
         return encoding_id, encoding_length, BaseFormatter.get(encoding_id.id_tag, encoding_content), bytes(list_data)
@@ -53,6 +53,9 @@ class BaseFormatter(object):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         cls.classes[cls.tag.default] = cls
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.data})'
 
     @staticmethod
     def get(tag, data: bytes):
@@ -79,58 +82,70 @@ class BaseFormatter(object):
 class IdentityClass(IntFlag):
     Universal = 0b00
     Application = 0b01
-    ContextSpecific = 0b10
+    Context_Specific = 0b10
     Private = 0b11
+
+    def __repr__(self):
+        return self.name.replace('_', ' ', -1)
 
 
 class IdentityPC(IntFlag):
     Primitive = 0b0
     Constructed = 0b1
 
+    def __repr__(self):
+        return self.name.replace('_', ' ', -1)
+
 
 class IdentityTag(IntFlag):
     EOC = 0
     Boolean = 1
     Integer = 2
-    BitString = 3
-    OctetString = 4
+    Bit_String = 3
+    Octet_String = 4
     Null = 5
-    ObjectIdentifier = 6
+    Object_Identifier = 6
     # https://www.obj-sys.com/asn1tutorial/node13.html
-    # 'ObjectDescriptor is used with the OBJECT IDENTIFIER type and takes values that are human-readable strings
+    # 'Object_Descriptor is used with the OBJECT IDENTIFIER type and takes values that are human-readable strings
     # delimited by quotes. The type has seldom been implemented, and will not be discussed further.'
-    ObjectDescriptor = 7
+    Object_Descriptor = 7
     External = 8
     Real = 9
     Enumerated = 10
-    EmbeddedPDV = 11
-    UTF8String = 12
-    RelativeOID = 13
+    Embedded_PDV = 11
+    UTF8_String = 12
+    Relative_OID = 13
     Time = 14
     # Reserved = 15
     Sequence = 16
     Set = 17
-    NumericString = 18
-    PrintableString = 19
-    T61String = 20
-    VideotexString = 21
-    IA5String = 22
-    UTCTime = 23
-    GeneralizedTime = 24
-    GraphicString = 25
-    VisibleString = 26
-    GeneralString = 27
-    UniversalString = 28
-    CharacterString = 29
-    BMPString = 30
+    Numeric_String = 18
+    Printable_String = 19
+    T61_String = 20
+    Videotex_String = 21
+    IA5_String = 22
+    UTC_Time = 23
+    Generalized_Time = 24
+    Graphic_String = 25
+    Visible_String = 26
+    General_String = 27
+    Universal_String = 28
+    Character_String = 29
+    BMP_String = 30
     Date = 31
-    TimeOfDay = 32
+    Time_Of_Day = 32
     Duration = 34
     OIDIRI = 35
-    RelativeOIDIRI = 36
+    Relative_OIDIRI = 36
 
     def __bytes__(self):
         return self.value.to_bytes(1, 'big')
+
+    def __repr__(self):
+        return self.name.replace('_', ' ', -1)
+
+    def __str__(self):
+        return self.name.replace('_', ' ', -1)
 
 
 @dataclass
@@ -156,14 +171,25 @@ class Identity(object):
 
         return cls(id_class, id_pc, IdentityTag(id_tag)), data
 
+    def __str__(self):
+        return \
+            f"""Identity:
+            Class: {self.id_class}
+            P/C:   {self.id_pc}
+            Tag:   {self.id_tag}
+        """
 
-@dataclass(init=False)
+    def __repr__(self):
+        return f'Identity(class={repr(self.id_class)}, pc={repr(self.id_pc)}, tag={repr(self.id_tag)})'
+
+
+@dataclass(init=False, repr=False)
 class EOC(BaseFormatter):
     data: None = None
     tag: IdentityTag = field(default=IdentityTag.EOC, repr=False)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Boolean(BaseFormatter):
     data: bool
     tag: IdentityTag = field(default=IdentityTag.Boolean, repr=False)
@@ -183,7 +209,7 @@ class Boolean(BaseFormatter):
             return cls(b'\x00', data)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Integer(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.Integer, repr=False)
@@ -203,7 +229,7 @@ class Integer(BaseFormatter):
         return cls(out.to_bytes(byte_count, 'big'), data)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Enumerated(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.Enumerated, repr=False)
@@ -221,7 +247,7 @@ class Enumerated(BaseFormatter):
         return cls(data.to_bytes(byte_count, 'big'), data)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Real(BaseFormatter):
     data: int
     tag: IdentityTag = field(default=IdentityTag.Real, repr=False)
@@ -378,10 +404,10 @@ class Real(BaseFormatter):
             return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'), data)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class BitString(BaseFormatter):
     data: int
-    tag: IdentityTag = field(default=IdentityTag.BitString, repr=False)
+    tag: IdentityTag = field(default=IdentityTag.Bit_String, repr=False)
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -410,10 +436,10 @@ class BitString(BaseFormatter):
         return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'), data)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class OctetString(BaseFormatter):
     data: bytes
-    tag: IdentityTag = field(default=IdentityTag.OctetString, repr=False)
+    tag: IdentityTag = field(default=IdentityTag.Octet_String, repr=False)
 
     def __init__(self, data: bytes, value=None):
         # value never gets used. Only implemented as an argument
@@ -429,7 +455,7 @@ class OctetString(BaseFormatter):
         return cls(bytes(data))
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Null(BaseFormatter):
     data: None
     tag: IdentityTag = field(default=IdentityTag.Null, repr=False)
@@ -445,7 +471,7 @@ class Null(BaseFormatter):
         return cls(None)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Sequence(BaseFormatter):
     data: List
     tag: IdentityTag = field(default=IdentityTag.Sequence, repr=False)
@@ -458,7 +484,7 @@ class Sequence(BaseFormatter):
             self.data = list()
             while data:
                 _, _, encoding, data = decode_bytes(data)
-                self.data.append(encoding.ber_content)
+                self.data.append(encoding)
 
     @classmethod
     def encode(cls, *args):
@@ -468,7 +494,7 @@ class Sequence(BaseFormatter):
         return cls(data, list(args))
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Set(BaseFormatter):
     data: List
     tag: IdentityTag = field(default=IdentityTag.Set, repr=False)
@@ -491,10 +517,10 @@ class Set(BaseFormatter):
         return cls(data, list(args))
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class ObjectIdentifier(BaseFormatter):
     data: List
-    tag: IdentityTag = field(default=IdentityTag.ObjectIdentifier, repr=False)
+    tag: IdentityTag = field(default=IdentityTag.Object_Identifier, repr=False)
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -543,10 +569,10 @@ class ObjectIdentifier(BaseFormatter):
         return cls(data, nums)
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class ObjectDescriptor(BaseFormatter):
     data: AnyStr
-    tag: IdentityTag = field(default=IdentityTag.ObjectDescriptor, repr=False)
+    tag: IdentityTag = field(default=IdentityTag.Object_Descriptor, repr=False)
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
