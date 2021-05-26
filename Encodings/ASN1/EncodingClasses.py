@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntFlag
 from math import log
 from typing import Dict, SupportsBytes, List, AnyStr
@@ -52,7 +52,7 @@ class BaseFormatter(object):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        cls.classes[cls.tag.default] = cls
+        cls.classes[cls.tag] = cls
 
     @staticmethod
     def get(tag, data: bytes):
@@ -60,6 +60,9 @@ class BaseFormatter(object):
 
     def __bytes__(self):
         return self._raw_data_
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.data})'
 
     @classmethod
     def encode(cls, data):
@@ -103,9 +106,9 @@ class IdentityTag(IntFlag):
     Null = 5
     Object_Identifier = 6
     # https://www.obj-sys.com/asn1tutorial/node13.html
-    # 'ObjectDescriptor is used with the OBJECT IDENTIFIER type and takes values that are human-readable strings
+    # 'Object_Descriptor is used with the OBJECT IDENTIFIER type and takes values that are human-readable strings
     # delimited by quotes. The type has seldom been implemented, and will not be discussed further.'
-    ObjectDescriptor = 7
+    Object_Descriptor = 7
     External = 8
     Real = 9
     Enumerated = 10
@@ -166,16 +169,14 @@ class Identity(object):
         return cls(id_class, id_pc, IdentityTag(id_tag)), data
 
 
-@dataclass(init=False)
 class EOC(BaseFormatter):
     data: None = None
-    tag: IdentityTag = field(default=IdentityTag.EOC, repr=False)
+    tag: IdentityTag = IdentityTag.EOC
 
 
-@dataclass(init=False)
 class Boolean(BaseFormatter):
     data: bool
-    tag: IdentityTag = field(default=IdentityTag.Boolean, repr=False)
+    tag: IdentityTag = IdentityTag.Boolean
 
     def __init__(self, data, value=None):
         super().__init__(data)
@@ -192,10 +193,9 @@ class Boolean(BaseFormatter):
             return cls(b'\x00', data)
 
 
-@dataclass(init=False)
 class Integer(BaseFormatter):
     data: int
-    tag: IdentityTag = field(default=IdentityTag.Integer, repr=False)
+    tag: IdentityTag = IdentityTag.Integer
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -212,10 +212,9 @@ class Integer(BaseFormatter):
         return cls(out.to_bytes(byte_count, 'big'), data)
 
 
-@dataclass(init=False)
 class Enumerated(BaseFormatter):
     data: int
-    tag: IdentityTag = field(default=IdentityTag.Enumerated, repr=False)
+    tag: IdentityTag = IdentityTag.Enumerated
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -230,10 +229,9 @@ class Enumerated(BaseFormatter):
         return cls(data.to_bytes(byte_count, 'big'), data)
 
 
-@dataclass(init=False)
 class Real(BaseFormatter):
     data: int
-    tag: IdentityTag = field(default=IdentityTag.Real, repr=False)
+    tag: IdentityTag = IdentityTag.Real
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -387,10 +385,9 @@ class Real(BaseFormatter):
             return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'), data)
 
 
-@dataclass(init=False)
 class BitString(BaseFormatter):
     data: int
-    tag: IdentityTag = field(default=IdentityTag.Bit_String, repr=False)
+    tag: IdentityTag = IdentityTag.Bit_String
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -419,10 +416,9 @@ class BitString(BaseFormatter):
         return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'), data)
 
 
-@dataclass(init=False)
 class OctetString(BaseFormatter):
     data: bytes
-    tag: IdentityTag = field(default=IdentityTag.Octet_String, repr=False)
+    tag: IdentityTag = IdentityTag.Octet_String
 
     def __init__(self, data: bytes, value=None):
         # value never gets used. Only implemented as an argument
@@ -438,10 +434,9 @@ class OctetString(BaseFormatter):
         return cls(bytes(data))
 
 
-@dataclass(init=False)
 class Null(BaseFormatter):
     data: None
-    tag: IdentityTag = field(default=IdentityTag.Null, repr=False)
+    tag: IdentityTag = IdentityTag.Null
 
     def __init__(self, data: None = None):
         # value and data never gets used. Only implemented as an argument
@@ -454,10 +449,9 @@ class Null(BaseFormatter):
         return cls(None)
 
 
-@dataclass(init=False)
 class Sequence(BaseFormatter):
     data: List
-    tag: IdentityTag = field(default=IdentityTag.Sequence, repr=False)
+    tag: IdentityTag = IdentityTag.Sequence
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -477,10 +471,9 @@ class Sequence(BaseFormatter):
         return cls(data, list(args))
 
 
-@dataclass(init=False)
 class Set(BaseFormatter):
     data: List
-    tag: IdentityTag = field(default=IdentityTag.Set, repr=False)
+    tag: IdentityTag = IdentityTag.Set
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -500,10 +493,9 @@ class Set(BaseFormatter):
         return cls(data, list(args))
 
 
-@dataclass(init=False)
 class ObjectIdentifier(BaseFormatter):
     data: List
-    tag: IdentityTag = field(default=IdentityTag.Object_Identifier, repr=False)
+    tag: IdentityTag = IdentityTag.Object_Identifier
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -552,10 +544,9 @@ class ObjectIdentifier(BaseFormatter):
         return cls(data, nums)
 
 
-@dataclass(init=False)
 class ObjectDescriptor(BaseFormatter):
     data: AnyStr
-    tag: IdentityTag = field(default=IdentityTag.ObjectDescriptor, repr=False)
+    tag: IdentityTag = IdentityTag.Object_Descriptor
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
