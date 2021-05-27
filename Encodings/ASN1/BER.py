@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
-from .EncodingClasses import Identity, BaseFormatter, decode_bytes
+from .EncodingClasses import Identity, UniversalFormatter, decode_bytes
 
 
 @dataclass
 class BER(object):
     ber_id: Identity
     ber_length: int
-    ber_content: BaseFormatter
+    ber_content: UniversalFormatter
 
     @classmethod
     def decode(cls, data):

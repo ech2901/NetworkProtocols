@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import IntFlag
 from math import log
-from typing import Dict, SupportsBytes, List, AnyStr
+from typing import SupportsBytes, List, AnyStr
 
 from Encodings.TwosComplement import *
 
@@ -38,25 +38,37 @@ def decode_bytes(data: bytes):
     encoding_content = bytes(list_data[:encoding_length])
     list_data = list_data[encoding_length:]
 
+    formatter = encoding_id.id_class.formatter
+
     if list_data:
-        return encoding_id, encoding_length, BaseFormatter.get(encoding_id.id_tag, encoding_content), bytes(list_data)
-    return encoding_id, encoding_length, BaseFormatter.get(encoding_id.id_tag, encoding_content), None
+        return encoding_id, encoding_length, formatter.get(encoding_id.id_tag, encoding_content), bytes(list_data)
+    return encoding_id, encoding_length, formatter.get(encoding_id.id_tag, encoding_content), None
+
+
+class MetaFormatter(type):
+    # Used to create a classes dict that is not shared between subclass siblings
+    def __new__(typ, *args, **kwargs):
+        name, superclasses, dictionary, *args = args
+
+        cls = type(name, superclasses, {'__init_subclass__': typ._populate_classes_, 'classes': dict()})
+
+        return cls
+
+    def _populate_classes_(cls, **kwargs):
+        cls.classes[cls.tag] = cls
 
 
 class BaseFormatter(object):
-    classes: Dict = dict()
-
+    # Base formatter used to create most methods for subclasses
     def __init__(self, data: bytes):
         self.size = len(data)
         self._raw_data_ = data
+        # Usually overriden by subclasses but incase of an undefined tag will store this for repr handler
+        self.data = data
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls.classes[cls.tag] = cls
-
-    @staticmethod
-    def get(tag, data: bytes):
-        return BaseFormatter.classes.get(tag, BaseFormatter)(data)
+    @classmethod
+    def get(cls, tag, data: bytes):
+        return cls.classes.get(tag, cls)(data)
 
     def __bytes__(self):
         return self._raw_data_
@@ -79,6 +91,28 @@ class BaseFormatter(object):
             return bytes(self.tag) + size_id.to_bytes(1, 'big') + self._raw_data_
 
 
+class UniversalFormatter(BaseFormatter, metaclass=MetaFormatter):
+    # For universal data types
+    # IE: All subclasses created in this file.
+    pass
+
+
+class ApplicationFormatter(BaseFormatter, metaclass=MetaFormatter):
+    # For application data types
+    # IE: subclasses defined for a service like LDAP
+    pass
+
+
+class ContextSpecificFormatter(BaseFormatter, metaclass=MetaFormatter):
+    # Usage depends on the context (such as within a sequence, set or choice)
+    pass
+
+
+class PrivateFormatter(BaseFormatter, metaclass=MetaFormatter):
+    # Usage defined in private definitions (Internal use only situations)
+    pass
+
+
 class IdentityClass(IntFlag):
     Universal = 0b00
     Application = 0b01
@@ -87,6 +121,10 @@ class IdentityClass(IntFlag):
 
     def __repr__(self):
         return self.name.replace('_', ' ', -1)
+
+    @property
+    def formatter(self):
+        return [UniversalFormatter, ApplicationFormatter, ContextSpecificFormatter, PrivateFormatter][self.value]
 
 
 class IdentityPC(IntFlag):
@@ -177,7 +215,7 @@ class EOC(BaseFormatter):
     tag: IdentityTag = IdentityTag.EOC
 
 
-class Boolean(BaseFormatter):
+class Boolean(UniversalFormatter):
     data: bool
     tag: IdentityTag = IdentityTag.Boolean
 
@@ -196,7 +234,7 @@ class Boolean(BaseFormatter):
             return cls(b'\x00', data)
 
 
-class Integer(BaseFormatter):
+class Integer(UniversalFormatter):
     data: int
     tag: IdentityTag = IdentityTag.Integer
 
@@ -215,7 +253,7 @@ class Integer(BaseFormatter):
         return cls(out.to_bytes(byte_count, 'big'), data)
 
 
-class Enumerated(BaseFormatter):
+class Enumerated(UniversalFormatter):
     data: int
     tag: IdentityTag = IdentityTag.Enumerated
 
@@ -232,7 +270,7 @@ class Enumerated(BaseFormatter):
         return cls(data.to_bytes(byte_count, 'big'), data)
 
 
-class Real(BaseFormatter):
+class Real(UniversalFormatter):
     data: int
     tag: IdentityTag = IdentityTag.Real
 
@@ -388,7 +426,7 @@ class Real(BaseFormatter):
             return cls(octet + e_bytes + m.to_bytes(m_bytes, 'big'), data)
 
 
-class BitString(BaseFormatter):
+class BitString(UniversalFormatter):
     data: int
     tag: IdentityTag = IdentityTag.Bit_String
 
@@ -399,7 +437,7 @@ class BitString(BaseFormatter):
         else:
             unused = data[0]
             self.data = int.from_bytes(data[1:], 'big') >> unused
-        self._bitcount_ = (len(data[1:]) * 8) - unused
+            self._bitcount_ = (len(data[1:]) * 8) - unused
 
     def __add__(self, other):
         # For when indefinate form being used and want an easy way of converting.
@@ -419,7 +457,7 @@ class BitString(BaseFormatter):
         return cls(padding.to_bytes(1, 'big') + (data << padding).to_bytes(byte_count, 'big'), data)
 
 
-class OctetString(BaseFormatter):
+class OctetString(UniversalFormatter):
     data: bytes
     tag: IdentityTag = IdentityTag.Octet_String
 
@@ -437,7 +475,7 @@ class OctetString(BaseFormatter):
         return cls(bytes(data))
 
 
-class Null(BaseFormatter):
+class Null(UniversalFormatter):
     data: None
     tag: IdentityTag = IdentityTag.Null
 
@@ -452,7 +490,7 @@ class Null(BaseFormatter):
         return cls(None)
 
 
-class Sequence(BaseFormatter):
+class Sequence(UniversalFormatter):
     data: List
     tag: IdentityTag = IdentityTag.Sequence
 
@@ -474,7 +512,7 @@ class Sequence(BaseFormatter):
         return cls(data, list(args))
 
 
-class Set(BaseFormatter):
+class Set(UniversalFormatter):
     data: List
     tag: IdentityTag = IdentityTag.Set
 
@@ -496,7 +534,7 @@ class Set(BaseFormatter):
         return cls(data, list(args))
 
 
-class ObjectIdentifier(BaseFormatter):
+class ObjectIdentifier(UniversalFormatter):
     data: List
     tag: IdentityTag = IdentityTag.Object_Identifier
 
@@ -547,7 +585,7 @@ class ObjectIdentifier(BaseFormatter):
         return cls(data, nums)
 
 
-class ObjectDescriptor(BaseFormatter):
+class ObjectDescriptor(UniversalFormatter):
     data: AnyStr
     tag: IdentityTag = IdentityTag.Object_Descriptor
 
