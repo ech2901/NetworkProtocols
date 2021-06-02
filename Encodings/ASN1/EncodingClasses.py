@@ -58,7 +58,8 @@ class MetaFormatter(type):
         return cls
 
     def _populate_classes_(cls, **kwargs):
-        cls.classes[cls.tag] = cls
+        if cls.tag not in cls.classes:
+            cls.classes[cls.tag] = cls
 
 
 class BaseFormatter(object):
