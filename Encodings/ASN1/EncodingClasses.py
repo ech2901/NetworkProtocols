@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from enum import IntFlag
 from math import log
 from typing import SupportsBytes, List, AnyStr
 
+from Encodings.BaseEnum import BaseEnum
 from Encodings.TwosComplement import *
 
 
@@ -130,29 +130,23 @@ class PrivateFormatter(BaseFormatter, metaclass=MetaFormatter):
     pass
 
 
-class IdentityClass(IntFlag):
+class IdentityClass(BaseEnum):
     Universal = 0b00
     Application = 0b01
     Context_Specific = 0b10
     Private = 0b11
-
-    def __repr__(self):
-        return self.name.replace('_', ' ', -1)
 
     @property
     def formatter(self):
         return [UniversalFormatter, ApplicationFormatter, ContextSpecificFormatter, PrivateFormatter][self.value]
 
 
-class IdentityPC(IntFlag):
+class IdentityPC(BaseEnum):
     Primitive = 0b0
     Constructed = 0b1
 
-    def __repr__(self):
-        return self.name
 
-
-class BaseTag(IntFlag):
+class BaseTag(BaseEnum):
     # Tag base class so applications can subclass and not overwrite universal tags
     __classes__ = dict()
 
