@@ -22,7 +22,7 @@ def decode_bytes(data: bytes):
         encoding_content = encoding_indef.ber_content
         while True:
             encoding_indef, data = decode_bytes(data)
-            if encoding_indef.ber_id.id_tag == IdentityTag.EOC:
+            if encoding_indef.ber_id.id_tag == UniversalTags.EOC:
                 break
             encoding_content = encoding_content + encoding_indef.ber_content
 
@@ -53,7 +53,7 @@ class MetaFormatter(type):
     def __new__(typ, *args, **kwargs):
         name, superclasses, dictionary, *args = args
 
-        cls = type(name, superclasses, {'__init_subclass__': typ._populate_classes_, 'classes': dict()})
+        cls = type(name, superclasses, {**dictionary, '__init_subclass__': typ._populate_classes_, 'classes': dict()})
 
         return cls
 
@@ -106,9 +106,23 @@ class ApplicationFormatter(BaseFormatter, metaclass=MetaFormatter):
     pass
 
 
+class Context(object):
+    pass
+
+
 class ContextSpecificFormatter(BaseFormatter, metaclass=MetaFormatter):
     # Usage depends on the context (such as within a sequence, set or choice)
-    pass
+
+    def __init__(self, tag: IntFlag, data: bytes):
+        super().__init__(data)
+        self.tag = tag
+
+    @classmethod
+    def get(cls, tag: IntFlag, data: bytes):
+        return cls(tag, data)
+
+    def apply(self, context: Context):
+        return context(self.tag, self.data)
 
 
 class PrivateFormatter(BaseFormatter, metaclass=MetaFormatter):
@@ -138,7 +152,17 @@ class IdentityPC(IntFlag):
         return self.name
 
 
-class IdentityTag(IntFlag):
+class BaseTag(IntFlag):
+    # Tag base class so applications can subclass and not overwrite universal tags
+    __classes__ = dict()
+
+    def __init_subclass__(cls, **kwargs):
+        cls.__classes__[cls.__id_class__] = cls
+
+
+class UniversalTags(BaseTag):
+    __id_class__ = IdentityClass.Universal
+
     EOC = 0
     Boolean = 1
     Integer = 2
@@ -190,7 +214,7 @@ class IdentityTag(IntFlag):
 class Identity(object):
     id_class: IdentityClass
     id_pc: IdentityPC
-    id_tag: IdentityTag
+    id_tag: UniversalTags
 
     @classmethod
     def decode(cls, data):
@@ -207,7 +231,9 @@ class Identity(object):
                 if id_tag & 128:
                     break
 
-        return cls(id_class, id_pc, IdentityTag(id_tag)), data
+        tag_type = BaseTag.__classes__.get(id_class, UniversalTags)
+
+        return cls(id_class, id_pc, tag_type(id_tag)), data
 
     def __repr__(self):
         return f'Identity(id={repr(self.id_class)}, pc={repr(self.id_pc)}, tag={repr(self.id_tag)})'
@@ -215,12 +241,12 @@ class Identity(object):
 
 class EOC(BaseFormatter):
     data: None = None
-    tag: IdentityTag = IdentityTag.EOC
+    tag: UniversalTags = UniversalTags.EOC
 
 
 class Boolean(UniversalFormatter):
     data: bool
-    tag: IdentityTag = IdentityTag.Boolean
+    tag: UniversalTags = UniversalTags.Boolean
 
     def __init__(self, data, value=None):
         super().__init__(data)
@@ -239,7 +265,7 @@ class Boolean(UniversalFormatter):
 
 class Integer(UniversalFormatter):
     data: int
-    tag: IdentityTag = IdentityTag.Integer
+    tag: UniversalTags = UniversalTags.Integer
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -258,7 +284,7 @@ class Integer(UniversalFormatter):
 
 class Enumerated(UniversalFormatter):
     data: int
-    tag: IdentityTag = IdentityTag.Enumerated
+    tag: UniversalTags = UniversalTags.Enumerated
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -275,7 +301,7 @@ class Enumerated(UniversalFormatter):
 
 class Real(UniversalFormatter):
     data: int
-    tag: IdentityTag = IdentityTag.Real
+    tag: UniversalTags = UniversalTags.Real
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -431,7 +457,7 @@ class Real(UniversalFormatter):
 
 class BitString(UniversalFormatter):
     data: int
-    tag: IdentityTag = IdentityTag.Bit_String
+    tag: UniversalTags = UniversalTags.Bit_String
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -462,7 +488,7 @@ class BitString(UniversalFormatter):
 
 class OctetString(UniversalFormatter):
     data: bytes
-    tag: IdentityTag = IdentityTag.Octet_String
+    tag: UniversalTags = UniversalTags.Octet_String
 
     def __init__(self, data: bytes, value=None):
         # value never gets used. Only implemented as an argument
@@ -480,11 +506,11 @@ class OctetString(UniversalFormatter):
 
 class Null(UniversalFormatter):
     data: None
-    tag: IdentityTag = IdentityTag.Null
+    tag: UniversalTags = UniversalTags.Null
 
     def __init__(self, data: None = None):
         # value and data never gets used. Only implemented as an argument
-        # to maintain structure similarities to other classes.
+        # to maintain structure similarities to other __classes__.
         super().__init__(b'')
         self.data = None
 
@@ -495,7 +521,7 @@ class Null(UniversalFormatter):
 
 class Sequence(UniversalFormatter):
     data: List
-    tag: IdentityTag = IdentityTag.Sequence
+    tag: UniversalTags = UniversalTags.Sequence
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -517,7 +543,7 @@ class Sequence(UniversalFormatter):
 
 class Set(UniversalFormatter):
     data: List
-    tag: IdentityTag = IdentityTag.Set
+    tag: UniversalTags = UniversalTags.Set
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -539,7 +565,7 @@ class Set(UniversalFormatter):
 
 class ObjectIdentifier(UniversalFormatter):
     data: List
-    tag: IdentityTag = IdentityTag.Object_Identifier
+    tag: UniversalTags = UniversalTags.Object_Identifier
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
@@ -590,7 +616,7 @@ class ObjectIdentifier(UniversalFormatter):
 
 class ObjectDescriptor(UniversalFormatter):
     data: AnyStr
-    tag: IdentityTag = IdentityTag.Object_Descriptor
+    tag: UniversalTags = UniversalTags.Object_Descriptor
 
     def __init__(self, data: bytes, value=None):
         super().__init__(data)
