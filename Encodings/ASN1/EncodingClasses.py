@@ -34,6 +34,9 @@ def decode_bytes(data: bytes):
         encoding_length = 0
         for i in range(byte_count):
             encoding_length = encoding_length + list_data.pop(0)
+            encoding_length = encoding_length << 8
+        encoding_length = encoding_length >> 8
+
 
     encoding_content = bytes(list_data[:encoding_length])
     list_data = list_data[encoding_length:]
