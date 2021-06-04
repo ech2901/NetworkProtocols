@@ -94,6 +94,11 @@ class BaseFormatter(object):
         else:
             return bytes(self.tag) + size_id.to_bytes(1, 'big') + self._raw_data_
 
+    @classmethod
+    def subclass(cls, subclass):
+        assert cls.tag == subclass.tag, f'Must use a subclass of {cls.tag}. Recieved {subclass.tag}.'
+        return cls(subclass._raw_data_, subclass.data)
+
 
 class UniversalFormatter(BaseFormatter, metaclass=MetaFormatter):
     # For universal data types
@@ -114,12 +119,12 @@ class Context(object):
 class ContextSpecificFormatter(BaseFormatter, metaclass=MetaFormatter):
     # Usage depends on the context (such as within a sequence, set or choice)
 
-    def __init__(self, tag: IntFlag, data: bytes):
+    def __init__(self, tag: BaseEnum, data: bytes):
         super().__init__(data)
         self.tag = tag
 
     @classmethod
-    def get(cls, tag: IntFlag, data: bytes):
+    def get(cls, tag: BaseEnum, data: bytes):
         return cls(tag, data)
 
     def apply(self, context: Context):

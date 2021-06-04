@@ -15,6 +15,9 @@ class BER(object):
         while data:
             ber_id, ber_length, ber_content, data = decode_bytes(data)
             output.append(cls(ber_id, ber_length, ber_content))
+
+        if len(output) == 1:
+            return output[0]
         return output
 
     def __repr__(self):
