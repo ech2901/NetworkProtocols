@@ -4,6 +4,7 @@ from socket import timeout, gethostname
 from socketserver import BaseRequestHandler
 
 from BaseServers import BaseTCPServer
+from Services.SMTP.Auth import Auth
 
 
 class SMTPHandler(BaseRequestHandler, Cmd):
@@ -44,27 +45,23 @@ class SMTPHandler(BaseRequestHandler, Cmd):
     def precmd(self, line):
         print(line)
         # Allow for non-case sensitive commands.
-        return line.lower()
+        command, args = line.split(' ', 1)
+        return ' '.join([command.lower(), args])
 
     def send(self, data):
         with self.request.makefile('wb') as sock:
             sock.write(f'{data}\r\n'.encode())
 
     def default(self, line):
-        self.send('502 Command not implemented')
+        self.send(f'502 {line} Command not implemented')
 
     def do_helo(self, client):
-        self.send(f'250-{self.server.domain}')
-        self.send('250-AUTH PLAIN')
-        self.send('250-SIZE 30000000')
-        self.send('250-8BITMIME')
-        self.send('250 OK')
+        self.send(f'250 {self.server.domain}')
 
     def do_ehlo(self, client):
         self.send(f'250-{self.server.domain}')
-        self.send('250-AUTH PLAIN')
-        self.send('250-SIZE 30000000')
-        self.send('250-8BITMIME')
+        for extension in self.server.extensions.values():
+            self.send(f'250-{str(extension)}')
         self.send('250 OK')
 
     def do_quit(self, line):
@@ -94,19 +91,23 @@ class SMTPHandler(BaseRequestHandler, Cmd):
         print('___message recieved___')
 
 
-
-
-
-
-
 class SMTPServer(BaseTCPServer):
-    def __init__(self, ip: str, port: int = 25, domain=None):
+    def __init__(self, ip: str, port: int = 25, domain=None, *extensions):
         BaseTCPServer.__init__(self, ip, port, SMTPHandler)
-        if domain:
+
+        if type(domain) == str:
             self.domain = domain
+        elif domain is None:
+            self.domain = f'{gethostname()}'
         else:
             self.domain = f'{gethostname()}'
+            extensions = extensions + (domain,)
+        self.extensions = dict([(ext.__class__.__name__.lower(), ext) for ext in extensions])
+        for ext_name, ext_class in self.extensions.items():
+            setattr(self.RequestHandlerClass, f'do_{ext_name}', ext_class)
+
+
 
 if __name__ == '__main__':
-    server = SMTPServer('', 465)
+    server = SMTPServer('', 465, Auth(plain=True))
     server.run()
