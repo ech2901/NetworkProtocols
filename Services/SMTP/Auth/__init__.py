@@ -36,9 +36,20 @@ class Auth(object):
         for val in auth_data:
             if len(val) > 255:
                 raise ValueError(f'Value size too large.\nMust be less than 255 characters.\nSize is {len(val)}')
-
         return auth_data
 
+    def auth_login(self, handler, data: str):
+        from base64 import b64decode
+
+        if data:
+            username = b64decode(data)
+        else:
+            handler.send('334 VXNlcm5hbWU6')  # Send base64 encoded "Username"
+            username = b64decode(handler.recv(decode=False))
+        handler.send('334 UGFzc3dvcmQ6')  # Send base64 encoded "Password"
+        password = b64decode(handler.recv(decode=False))
+        handler.send('235 2.7.0 Authentication successful')
+        return username, password
 
 if __name__ == '__main__':
     print(Auth().auth_methods)  # Empty list
