@@ -45,7 +45,12 @@ class SMTPHandler(BaseRequestHandler, Cmd):
     def precmd(self, line):
         print(line)
         # Allow for non-case sensitive commands.
+        # Still allows for case sensitive arguments.
         command, args = line.split(' ', 1)
+
+        if command.lower() in self.server.extensions:
+            return f'extension {command.lower()} {args}'
+
         return ' '.join([command.lower(), args])
 
     def send(self, data):
@@ -54,6 +59,10 @@ class SMTPHandler(BaseRequestHandler, Cmd):
 
     def default(self, line):
         self.send(f'502 {line} Command not implemented')
+
+    def do_extension(self, line):
+        extension, args = line.split(' ', 1)
+        self.server.extensions[extension](self, args)
 
     def do_helo(self, client):
         self.send(f'250 {self.server.domain}')
@@ -103,9 +112,6 @@ class SMTPServer(BaseTCPServer):
             self.domain = f'{gethostname()}'
             extensions = extensions + (domain,)
         self.extensions = dict([(ext.__class__.__name__.lower(), ext) for ext in extensions])
-        for ext_name, ext_class in self.extensions.items():
-            setattr(self.RequestHandlerClass, f'do_{ext_name}', ext_class)
-
 
 
 if __name__ == '__main__':

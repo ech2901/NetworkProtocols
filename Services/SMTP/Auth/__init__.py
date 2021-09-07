@@ -10,17 +10,17 @@ class Auth(object):
     def __str__(self):
         return f"AUTH {' '.join(map(str.upper, self.auth_methods))}"
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: str):
         if item in self.auth_methods:
             return getattr(self, f'auth_{item}')
         else:
             raise KeyError(f'Auth method {item} does not exist.')
 
-    def __call__(self, line):
+    def __call__(self, handler, line: str):
         method, data = line.split(' ', -1)
         print(self[method.lower()](data))
 
-    def auth_plain(self, data):
+    def auth_plain(self, data: str):
         # https://www.rfc-editor.org/rfc/rfc4616.html
 
         # https://www.rfc-editor.org/rfc/rfc4422#page-17
