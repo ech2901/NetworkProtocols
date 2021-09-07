@@ -46,6 +46,9 @@ class SMTPHandler(BaseRequestHandler, Cmd):
         print(line)
         # Allow for non-case sensitive commands.
         # Still allows for case sensitive arguments.
+        if ' ' not in line:
+            return line
+
         command, args = line.split(' ', 1)
 
         if command.lower() in self.server.extensions:
@@ -69,8 +72,8 @@ class SMTPHandler(BaseRequestHandler, Cmd):
         self.send(f'502 {line} Command not implemented')
 
     def do_extension(self, line):
-        extension, args = line.split(' ', 1)
-        self.server.extensions[extension](self, args)
+        extension, *args = line.split(' ', -1)
+        self.server.extensions[extension](self, *args)
 
     def do_helo(self, client):
         self.send(f'250 {self.server.domain}')
