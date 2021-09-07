@@ -16,11 +16,10 @@ class Auth(object):
         else:
             raise KeyError(f'Auth method {item} does not exist.')
 
-    def __call__(self, handler, line: str):
-        method, data = line.split(' ', -1)
-        print(self[method.lower()](data))
+    def __call__(self, handler, method, data=None):
+        print(self[method.lower()](handler, data))
 
-    def auth_plain(self, data: str):
+    def auth_plain(self, handler, data: str):
         # https://www.rfc-editor.org/rfc/rfc4616.html
 
         # https://www.rfc-editor.org/rfc/rfc4422#page-17

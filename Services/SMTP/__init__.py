@@ -57,6 +57,14 @@ class SMTPHandler(BaseRequestHandler, Cmd):
         with self.request.makefile('wb') as sock:
             sock.write(f'{data}\r\n'.encode())
 
+    def recv(self, bytecount=1024, strip=True, decode=True):
+        data = self.request.recv(bytecount)
+        if decode:
+            data = data.decode()
+        if strip:
+            return data.strip()
+        return data
+
     def default(self, line):
         self.send(f'502 {line} Command not implemented')
 
@@ -81,10 +89,10 @@ class SMTPHandler(BaseRequestHandler, Cmd):
         print(sender)
         self.send('250 ok')
         read, _, _ = select([self.request, ], [], [], 10)
-        recpt_list = [self.request.recv(1024).decode().strip()]
+        recpt_list = [self.recv()]
         self.send('250 ok')
         while True:
-            data = self.request.recv(1024).decode().strip()
+            data = self.recv()
             if data.startswith('rcpt'):
                 recpt_list.append(data)
                 self.send('250 ok')
@@ -92,7 +100,7 @@ class SMTPHandler(BaseRequestHandler, Cmd):
                 self.send('354 Start mail input; end with <CRLF>.<CRLF>')
                 msg = ''
                 while not msg.endswith('\r\n.\r\n'):
-                    msg = msg + self.request.recv(4).decode()
+                    msg = msg + self.recv(strip=False)
                 break
         print(recpt_list)
         print(msg[:-5])
