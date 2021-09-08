@@ -53,17 +53,15 @@ class SMTPHandler(BaseRequestHandler, Cmd):
 
     def precmd(self, line):
         print(line)
-        # Allow for non-case sensitive commands.
-        # Still allows for case sensitive arguments.
-        if ' ' not in line:
-            return line
 
-        command, args = line.split(' ', 1)
+        command, *args = line.split(' ', 1)
+
+        new_line = ' '.join([command.lower(), *args])
 
         if command.lower() in self.server.extensions:
-            return f'extension {command.lower()} {args}'
+            return f'extension {new_line}'
 
-        return ' '.join([command.lower(), args])
+        return new_line
 
     def send(self, data):
         with self.request.makefile('wb') as sock:
