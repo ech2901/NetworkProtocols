@@ -8,5 +8,5 @@ class Size(BaseExtension):
     def __str__(self):
         return f'SIZE {self.size}'
 
-    def __call__(self, handler, *args, **kwargs):
-        handler.send('501 5.5.1 Unrecognized Command.')
+    def __call__(self, handler):
+        handler.send('501 Unrecognized Command.')

@@ -59,5 +59,5 @@ class Auth(BaseExtension):
 
         handler.send('334 UGFzc3dvcmQ6')  # Send base64 encoded "Password"
         password = b64decode(handler.recv(decode=False))
-        handler.send('235 2.7.0 Authentication successful')
+        handler.send('235 Authentication successful')
         return username, password
