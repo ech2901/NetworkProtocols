@@ -4,7 +4,7 @@ from socket import timeout, gethostname
 from socketserver import BaseRequestHandler
 
 from BaseServers import BaseTCPServer
-from Services.SMTP.Extensions import Auth, Size
+from Services.SMTP.Extensions import Auth, Size, StartTLS
 
 
 class SMTPHandler(BaseRequestHandler, Cmd):
