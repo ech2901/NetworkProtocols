@@ -4,7 +4,7 @@ from socket import timeout, gethostname
 from socketserver import BaseRequestHandler
 
 from BaseServers import BaseTCPServer
-from Services.SMTP.Auth import Auth
+from Services.SMTP.Extensions import Auth, Size
 
 
 class SMTPHandler(BaseRequestHandler, Cmd):
@@ -20,6 +20,15 @@ class SMTPHandler(BaseRequestHandler, Cmd):
         Cmd.__init__(self, stdin=sock_read)
         self.use_rawinput = False
         self.prompt = ''
+
+        if 'size' in self.server.extensions:
+            self.size = self.server.extensions['size'].size
+            # Maximum size, which will be advertized to clients
+            # Messages bigger than this will be rejected
+        else:
+            self.size = 2_000_000
+            # Max size of 2mb by default
+            # Messages bigger than this will be rejected.
 
     def handle(self):
         print("Connetion made.")
@@ -126,5 +135,5 @@ class SMTPServer(BaseTCPServer):
 
 
 if __name__ == '__main__':
-    server = SMTPServer('', 465, Auth(plain=True))
+    server = SMTPServer('', 465, Auth(plain=True), Size(10000))
     server.run()

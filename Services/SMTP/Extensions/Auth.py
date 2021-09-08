@@ -1,4 +1,7 @@
-class Auth(object):
+from Services.SMTP.Extensions.BaseExtension import BaseExtension
+
+
+class Auth(BaseExtension):
     def __init__(self, **kwargs):
         self.auth_methods = list(
             filter(
@@ -58,8 +61,3 @@ class Auth(object):
         password = b64decode(handler.recv(decode=False))
         handler.send('235 2.7.0 Authentication successful')
         return username, password
-
-if __name__ == '__main__':
-    print(Auth().auth_methods)  # Empty list
-    print(Auth(plain=True).auth_methods)  # Only plain auth capable
-    print(Auth(plain=True))
