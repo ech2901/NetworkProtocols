@@ -38,6 +38,11 @@ class Auth(object):
         return auth_data
 
     def auth_login(self, handler, data: str):
+        # SASL login method. Obsolete for plain method.
+        # https://www.ietf.org/archive/id/draft-murchison-sasl-login-00.txt
+
+        # Only use if legacy support is needed.
+
         from base64 import b64decode
 
         if data:
@@ -45,6 +50,10 @@ class Auth(object):
         else:
             handler.send('334 VXNlcm5hbWU6')  # Send base64 encoded "Username"
             username = b64decode(handler.recv(decode=False))
+
+        if len(username) > 64:
+            raise ValueError(f'Username length must be >= 64 characters. Username length: {len(username)}')
+
         handler.send('334 UGFzc3dvcmQ6')  # Send base64 encoded "Password"
         password = b64decode(handler.recv(decode=False))
         handler.send('235 2.7.0 Authentication successful')
