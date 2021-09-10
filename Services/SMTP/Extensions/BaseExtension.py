@@ -5,3 +5,6 @@ class BaseExtension(object):
 
     def __str__(self):
         pass
+
+    def wrap(self, handler):
+        return handler
